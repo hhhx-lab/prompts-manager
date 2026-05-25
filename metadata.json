@@ -1,0 +1,7 @@
+{
+  "name": "PromptMaster Pro",
+  "description": "A high-end AI prompt engineering suite designed to transform vague ideas into precise, high-performance AI instructions across all scenarios.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
