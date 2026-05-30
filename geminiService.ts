@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { ScenarioType, StyleMode, OptimizationResult } from "./types";
+import { OptimizationDirection, OptimizationResult, PromptAsset, ScenarioType, StyleMode } from "./types";
+import { formatAssetForModel } from "./services/library";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -19,6 +20,10 @@ export const optimizePrompt = async (
     isRefinement?: boolean;
     selectedSuggestions?: string[]; // 新增：用户选取的迭代建议
     previousVersion?: string;
+    selectedAssets?: PromptAsset[];
+    recommendedAssets?: PromptAsset[];
+    directions?: OptimizationDirection[];
+    customDirection?: string;
   }
 ): Promise<OptimizationResult> => {
   const modelName = options.useThinking ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
@@ -40,20 +45,31 @@ export const optimizePrompt = async (
     ? `\n【极度重要：附件深度分析指令】\n用户上传了 ${options.attachments.length} 个附件。你必须：\n1. 极其仔细地读取并深度分析所有附件的内容（包括文本、图片、文档、数据等）。\n2. 深度揣测用户上传这些附件的真实用意和潜在需求。\n3. 在优化提示词时，必须将附件内容作为核心参考依据，确保生成的提示词能够完美处理、利用或契合这些附件所展现的信息特征。\n4. 你的优化结果必须明显体现出对附件内容的深度理解和针对性适配。`
     : '';
 
+  const selectedAssets = (options.selectedAssets || []).slice(0, 8);
+  const recommendedAssets = (options.recommendedAssets || [])
+    .filter(asset => !selectedAssets.some(selected => selected.id === asset.id))
+    .slice(0, 5);
+  const directionInstruction = buildDirectionInstruction(options.directions || [], options.customDirection || '');
+  const assetInstruction = buildAssetInstruction(selectedAssets, recommendedAssets);
+
   const systemInstruction = `
     ${baseInstruction}
     ${attachmentInstruction}
+    ${directionInstruction}
+    ${assetInstruction}
     
     核心规则：
     1. 修正语法错误，重构为“角色 - 背景 - 任务 - 约束 - 格式”框架。
     2. 补全目标受众、字数要求、评价标准。
     3. 根据场景（${options.scenario}）和风格（${options.style}）植入专业术语。
     4. 必须使用简体中文。
+    5. 如果用户选择了项目库资产，必须把这些资产作为“可引用工程上下文”融合到最终提示词中；不要声称已经真实调用 MCP、SDK 或外部工具。
+    6. 如果提供了优化方向，必须按方向调整提示词结构，并在 highlights 中说明采用了哪些方向。
     
     返回格式 (JSON):
     {
       "optimized": "最终精炼后的提示词字符串",
-      "highlights": ["列出本次优化的核心改进项"],
+      "highlights": ["列出本次优化的核心改进项；如使用项目库资产或优化方向，必须明确说明"],
       "suggestions": ["提供 4 条进一步提升该提示词效果的专业、具体且可执行的建议。例如：'增加思维链引导以提升复杂推理准确性'、'为生成的文案补充 3 个反面案例以明确边界'"]
     }
   `;
@@ -276,4 +292,34 @@ export const startChat = (model: string = 'gemini-3-pro-preview') => {
       systemInstruction: "你是一个智能提示词助手，负责解答用户关于提示词优化的问题。"
     }
   });
+};
+
+const buildDirectionInstruction = (directions: OptimizationDirection[], customDirection: string) => {
+  if (directions.length === 0 && !customDirection.trim()) return '';
+  const directionLines = directions.map(direction => `- ${direction.name}: ${direction.description}`).join('\n');
+  const customLine = customDirection.trim() ? `\n- 自定义方向: ${customDirection.trim()}` : '';
+  return `
+    【本次优化方向】
+    你必须优先按以下方向优化提示词：
+    ${directionLines}${customLine}
+  `;
+};
+
+const buildAssetInstruction = (selectedAssets: PromptAsset[], recommendedAssets: PromptAsset[]) => {
+  if (selectedAssets.length === 0 && recommendedAssets.length === 0) return '';
+  const selectedBlock = selectedAssets.length
+    ? `\n【用户确认注入的项目库资产】\n${selectedAssets.map((asset, index) => `## 资产 ${index + 1}\n${formatAssetForModel(asset)}`).join('\n\n')}`
+    : '';
+  const recommendedBlock = recommendedAssets.length
+    ? `\n【系统推荐但未必确认的候选资产】\n这些资产只能作为弱参考，优先级低于用户确认注入的资产：\n${recommendedAssets.map((asset, index) => `## 候选 ${index + 1}\n${formatAssetForModel(asset)}`).join('\n\n')}`
+    : '';
+  return `
+    【项目库资产使用规则】
+    以下内容来自用户维护的提示词工程项目库，可能包含 Prompt、Skill、MCP、SDK、Workflow 或 Reference。
+    它们是“半结构化引用上下文”，只用于生成更准确、更可复用的提示词。
+    你不得声称已经真实执行、连接、调用或验证这些 MCP/SDK/Skill。
+    你需要把被确认注入的资产转化为提示词中的角色、工具上下文、约束、输入输出、流程或示例。
+    ${selectedBlock}
+    ${recommendedBlock}
+  `;
 };

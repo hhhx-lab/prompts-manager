@@ -16,6 +16,24 @@
       backdrop-filter: blur(10px);
       border: 1px solid rgba(255, 255, 255, 0.1);
     }
+    .field-input {
+      width: 100%;
+      border-radius: 0.5rem;
+      border: 1px solid rgb(30 41 59);
+      background: rgb(15 23 42);
+      color: rgb(226 232 240);
+      padding: 0.625rem 0.75rem;
+      font-size: 0.875rem;
+      outline: none;
+    }
+    .field-input:focus {
+      border-color: rgb(34 211 238);
+      box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.15);
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgb(2 6 23); }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgb(51 65 85); border-radius: 999px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgb(71 85 105); }
   </style>
 <script type="importmap">
 {
@@ -30,7 +48,6 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen overflow-x-hidden">
   <div id="root"></div>
