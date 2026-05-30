@@ -25,6 +25,11 @@
 
 详细清单见 [docs/starter-assets-v2.md](docs/starter-assets-v2.md)。
 
+## 文档目录
+
+- [docs/prompt-engineering-knowledge](docs/prompt-engineering-knowledge/README.md)：提示词工程知识库，整合官方文档、论文方法、工具调用、Agent、评估、安全治理和项目库运营方法。
+- [docs/asset-package-specs](docs/asset-package-specs/README.md)：资产包规格，逐类说明 Prompt、Skill、MCP、SDK、Workflow、Reference、Agent、Tool、Template、Evaluator、Dataset、Policy、Memory、Connector、Parser、Benchmark 的定义、结构和创建方式。
+
 ## 本地存储
 
 项目当前不依赖后端数据库，数据保存在浏览器 `localStorage`：
@@ -104,7 +109,9 @@ npm run preview
 │   ├── starterAssets.ts     # 默认资产包
 │   └── storage.ts           # localStorage key 和读写封装
 └── docs/
-    └── starter-assets-v2.md # 默认资产包追加说明
+    ├── asset-package-specs/           # 16 类资产包定义、用法和结构
+    ├── prompt-engineering-knowledge/  # 提示词工程系统知识库
+    └── starter-assets-v2.md           # 默认资产包追加说明
 ```
 
 ## 安全边界
