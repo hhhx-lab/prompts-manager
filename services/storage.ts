@@ -2,6 +2,12 @@ export const HISTORY_STORAGE_KEY = 'promptmaster_history_v2';
 export const ASSET_LIBRARY_STORAGE_KEY = 'promptmaster_asset_library_v1';
 export const ASSET_LIBRARY_SEEDED_STORAGE_KEY = 'promptmaster_asset_library_seeded_v1';
 export const DIRECTIONS_STORAGE_KEY = 'promptmaster_directions_v1';
+export const TASK_MODELS_STORAGE_KEY = 'promptmaster_task_models_v1';
+export const PROMPT_COMPILATIONS_STORAGE_KEY = 'promptmaster_prompt_compilations_v1';
+export const PROMPT_RUNS_STORAGE_KEY = 'promptmaster_prompt_runs_v1';
+export const FEEDBACK_EVENTS_STORAGE_KEY = 'promptmaster_feedback_events_v1';
+export const ASSET_GRAPH_STORAGE_KEY = 'promptmaster_asset_graph_v1';
+export const ASSET_PATCHES_STORAGE_KEY = 'promptmaster_asset_patches_v1';
 
 export const readJson = <T>(key: string, fallback: T): T => {
   try {

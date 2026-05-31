@@ -279,6 +279,208 @@ export interface PromptAsset {
   updatedAt: number;
 }
 
+export type CompileMode = 'readable' | 'strict' | 'tool-ready' | 'agent-ready' | 'eval-ready';
+
+export interface TaskModel {
+  id: string;
+  rawInput: string;
+  goal: string;
+  audience: string;
+  scenario: string;
+  inputMaterials: string[];
+  expectedOutputs: string[];
+  constraints: string[];
+  risks: string[];
+  missingInfo: string[];
+  suggestedAssetTypes: AssetType[];
+  riskLevel: 'low' | 'medium' | 'high';
+  confidence: number;
+  createdAt: number;
+}
+
+export interface AssetSlot {
+  id: string;
+  name: string;
+  description: string;
+  acceptedTypes: AssetType[];
+  assetIds: string[];
+  required: boolean;
+  warnings: string[];
+}
+
+export interface PromptIR {
+  task: TaskModel;
+  sections: {
+    role: string;
+    context: string[];
+    inputs: string[];
+    process: string[];
+    toolRules: string[];
+    constraints: string[];
+    outputFormat: string;
+    evaluationCriteria: string[];
+    fallback: string[];
+  };
+  assetBindings: {
+    assetId: string;
+    assetTitle: string;
+    slot: string;
+    appliedToSections: string[];
+    priority: number;
+  }[];
+  risks: string[];
+  assumptions: string[];
+}
+
+export interface PromptCompilation {
+  id: string;
+  taskId: string;
+  mode: CompileMode;
+  promptIR: PromptIR;
+  compiledPrompt: string;
+  assetIds: string[];
+  warnings: string[];
+  createdAt: number;
+}
+
+export type FeedbackEventType =
+  | 'manual_edit'
+  | 'copy_result'
+  | 'save_result'
+  | 'submit_result'
+  | 'regenerate'
+  | 'follow_up'
+  | 'switch_prompt'
+  | 'switch_model'
+  | 'add_attachment'
+  | 'delete_output_fragment'
+  | 'mark_reusable'
+  | 'create_asset_from_run';
+
+export interface FeedbackEvent {
+  id: string;
+  runId: string;
+  type: FeedbackEventType;
+  label: string;
+  payload: Record<string, unknown>;
+  timestamp: number;
+}
+
+export interface AssetPatch {
+  id: string;
+  targetAssetId?: string;
+  targetAssetTitle?: string;
+  suggestedAssetType: AssetType;
+  reason: string;
+  evidenceEvents: string[];
+  changes: {
+    fieldPath: string;
+    before: string;
+    after: string;
+  }[];
+  expectedImpact: string;
+  risk: string;
+  createdAt: number;
+}
+
+export interface PromptRun {
+  id: string;
+  compilationId: string;
+  model: string;
+  input: string;
+  output: string;
+  metrics: Record<string, number>;
+  feedbackEvents: FeedbackEvent[];
+  createdAt: number;
+}
+
+export interface AssetGraphEdge {
+  id: string;
+  sourceAssetId: string;
+  targetAssetId: string;
+  relation:
+    | 'uses'
+    | 'evaluates'
+    | 'constrains'
+    | 'provides_context'
+    | 'implements'
+    | 'tests'
+    | 'derived_from'
+    | 'conflicts_with';
+  note: string;
+}
+
+export interface AssetBuilderDraft {
+  id: string;
+  assetType: AssetType;
+  title: string;
+  summary: string;
+  content: string;
+  integration: AssetIntegration;
+  schemaPreview: string[];
+  nextSteps: string[];
+  warnings: string[];
+  createdAt: number;
+}
+
+export interface RunLabComparisonMetric {
+  promptLength: number;
+  assetCount: number;
+  sectionCount: number;
+  warningCount: number;
+}
+
+export interface RunLabComparison {
+  id: string;
+  taskId: string;
+  baselinePrompt: string;
+  variantPrompt: string;
+  baselineMetrics: RunLabComparisonMetric;
+  variantMetrics: RunLabComparisonMetric;
+  differences: string[];
+  recommendation: string;
+  createdAt: number;
+}
+
+export interface FeedbackInsights {
+  totalEvents: number;
+  patchCount: number;
+  patchTypes: Record<string, number>;
+  topSignals: string[];
+  nextActions: string[];
+  riskNotes: string[];
+  createdAt: number;
+}
+
+export interface DocsIndexItem {
+  path: string;
+  title: string;
+  category: 'product' | 'knowledge' | 'asset-spec' | 'plan' | 'other';
+  summary: string;
+  updatedAt: number;
+}
+
+export interface BackendHealth {
+  ok: boolean;
+  service: string;
+  version: string;
+  docsCount: number;
+  dataDirReady: boolean;
+  timestamp: number;
+}
+
+export interface ArchitectureManifest {
+  name: string;
+  stack: {
+    frontend: string;
+    backend: string;
+    docs: string;
+    storage: string;
+  };
+  boundaries: string[];
+  endpoints: string[];
+}
+
 export interface OptimizationDirection {
   id: string;
   name: string;

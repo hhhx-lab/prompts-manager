@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:web": "vite",
+    "dev:api": "node backend/server.mjs",
+    "dev:all": "node scripts/dev-all.mjs",
+    "start:api": "node backend/server.mjs",
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview"

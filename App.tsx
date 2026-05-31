@@ -1,23 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowRight,
   BookOpen,
   BrainCircuit,
   Check,
   ChevronLeft,
   ChevronRight,
   Copy,
-  Database,
   Download,
-  Edit3,
   File as FileIcon,
   FileCode,
   FileSpreadsheet,
   FileText,
-  Filter,
   GitCompare,
   History as HistoryIcon,
-  LayoutDashboard,
   Lightbulb,
   MessageSquare,
   PackageOpen,
@@ -25,7 +20,6 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
-  Search,
   Send,
   Sparkles,
   Split,
@@ -85,11 +79,27 @@ import {
   parseList,
   recommendAssets
 } from './services/library';
+import { OpsWorkbench } from './components/ops/OpsWorkbench';
+import { AppShell, AppViewMode } from './components/layout/AppShell';
+import { AssetLibraryCard } from './components/library/AssetLibraryCard';
+import { LibraryFilterSidebar } from './components/library/LibraryFilterSidebar';
+import { BuilderWorkbench } from './components/builders/BuilderWorkbench';
+import { RunLabWorkbench } from './components/run-lab/RunLabWorkbench';
+import { FeedbackWorkbench } from './components/feedback/FeedbackWorkbench';
+import { KnowledgeBaseView } from './components/knowledge/KnowledgeBaseView';
+import { SettingsView } from './components/settings/SettingsView';
 
-type ViewMode = 'workspace' | 'library';
+type ViewMode = AppViewMode;
+
+const resolveViewFromHash = (): ViewMode => {
+  if (typeof window === 'undefined') return 'workspace';
+  const hash = window.location.hash.replace('#', '');
+  if (['workspace', 'library', 'builder', 'runlab', 'feedback', 'knowledge', 'settings', 'ops'].includes(hash)) return hash as ViewMode;
+  return 'workspace';
+};
 
 const App: React.FC = () => {
-  const [activeView, setActiveView] = useState<ViewMode>('workspace');
+  const [activeView, setActiveView] = useState<ViewMode>(() => resolveViewFromHash());
   const [input, setInput] = useState('');
   const [scenario, setScenario] = useState<ScenarioType>(ScenarioType.GENERAL);
   const [style, setStyle] = useState<StyleMode>(StyleMode.BUSINESS);
@@ -148,6 +158,16 @@ const App: React.FC = () => {
     selectedDirections.map(direction => `${direction.name} ${direction.description}`)
   ), [assets, input, scenario, style, customDirection, selectedDirections]);
 
+  const openView = (view: ViewMode) => {
+    setActiveView(view);
+    if (typeof window !== 'undefined') {
+      const hash = `#${view}`;
+      if (window.location.hash !== hash) {
+        window.history.pushState(null, '', hash);
+      }
+    }
+  };
+
   const filteredAssets = useMemo(() => {
     const query = librarySearch.trim().toLowerCase();
     return assets
@@ -184,6 +204,16 @@ const App: React.FC = () => {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory]);
+
+  useEffect(() => {
+    const syncViewFromHash = () => setActiveView(resolveViewFromHash());
+    window.addEventListener('hashchange', syncViewFromHash);
+    window.addEventListener('popstate', syncViewFromHash);
+    return () => {
+      window.removeEventListener('hashchange', syncViewFromHash);
+      window.removeEventListener('popstate', syncViewFromHash);
+    };
+  }, []);
 
   const handleOptimization = async (isRefineAction = false) => {
     const baseInput = isRefineAction ? editableResult : input;
@@ -345,7 +375,7 @@ const App: React.FC = () => {
         }
         setLibraryNotice(`已导入 ${importedAssets.length} 个资产${importedDirections.length ? `，${importedDirections.length} 个方向` : ''}。`);
       }
-      setActiveView('library');
+      openView('library');
     } catch (error) {
       console.error('资产导入失败:', error);
       alert(`资产导入失败: ${error instanceof Error ? error.message : '未知错误'}`);
@@ -394,7 +424,7 @@ const App: React.FC = () => {
     setSelectedDirectionIds(latest.settings.directions || []);
     setCustomDirection(latest.settings.customDirection || '');
     setSelectedAssetIds(latest.settings.selectedAssetIds || []);
-    setActiveView('workspace');
+    openView('workspace');
   };
 
   const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
@@ -418,7 +448,7 @@ const App: React.FC = () => {
       if (prev.includes(id) || prev.length >= 8) return prev;
       return [...prev, id];
     });
-    setActiveView('workspace');
+    openView('workspace');
   };
 
   const toggleDirection = (id: string) => {
@@ -633,52 +663,47 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-slate-950 text-slate-100">
-      <header className="h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-950/90 backdrop-blur-md z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-cyan-500 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/20">
-            <Sparkles className="text-slate-950 w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">提示词大师 <span className="text-cyan-300">Pro</span></h1>
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Prompt Engineering Repository</p>
-          </div>
-        </div>
-        <nav className="hidden md:flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 p-1">
-          <button
-            onClick={() => setActiveView('workspace')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${activeView === 'workspace' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'}`}
-          >
-            <LayoutDashboard size={18} /> 工作台
-          </button>
-          <button
-            onClick={() => setActiveView('library')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${activeView === 'library' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'}`}
-          >
-            <BookOpen size={18} /> 项目库
-          </button>
-        </nav>
-        <div className="flex items-center gap-3 text-xs text-slate-400">
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 border border-slate-800 rounded-lg bg-slate-900">
-            <Database size={14} className="text-cyan-300" /> {assets.length} 资产
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-hidden">
-        {activeView === 'workspace' ? renderWorkspace() : renderLibrary()}
-      </main>
+    <AppShell activeView={activeView} assetCount={assets.length} onViewChange={openView}>
+      {renderActiveView()}
 
       {renderCompareDrawer()}
       {renderABTestDrawer()}
       {renderAssetEditor()}
       {renderChat()}
-
-      <footer className="h-10 border-t border-slate-800 flex items-center justify-center px-4 bg-slate-950 text-[10px] text-slate-500 uppercase tracking-widest font-bold">
-        本地项目库已启用 · 资产仅作为半结构化上下文注入 · 不真实执行 MCP/SDK
-      </footer>
-    </div>
+    </AppShell>
   );
+
+  function renderActiveView() {
+    switch (activeView) {
+      case 'workspace':
+        return renderWorkspace();
+      case 'library':
+        return renderLibrary();
+      case 'builder':
+        return (
+          <BuilderWorkbench
+            assets={assets}
+            directions={allDirections}
+            scenario={scenario}
+            onAssetCreate={(asset) => {
+              setAssets(previous => [asset, ...previous]);
+              setLibraryNotice(`已从构建器保存资产：${asset.title}`);
+            }}
+          />
+        );
+      case 'runlab':
+        return <RunLabWorkbench assets={assets} directions={allDirections} scenario={scenario} />;
+      case 'feedback':
+        return <FeedbackWorkbench assets={assets} directions={allDirections} scenario={scenario} />;
+      case 'knowledge':
+        return <KnowledgeBaseView />;
+      case 'settings':
+        return <SettingsView assetCount={assets.length} directionCount={allDirections.length} historyCount={history.length} />;
+      case 'ops':
+      default:
+        return <OpsWorkbench assets={assets} directions={allDirections} scenario={scenario} />;
+    }
+  }
 
   function renderWorkspace() {
     return (
@@ -805,7 +830,7 @@ const App: React.FC = () => {
       <section className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold flex items-center gap-2"><PackageOpen size={16} className="text-cyan-300" /> 资产注入</h3>
-          <button onClick={() => setActiveView('library')} className="text-[10px] text-cyan-300 hover:text-cyan-200 font-bold">管理项目库</button>
+          <button onClick={() => openView('library')} className="text-[10px] text-cyan-300 hover:text-cyan-200 font-bold">管理项目库</button>
         </div>
         <div className="space-y-2">
           <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">推荐资产</div>
@@ -949,33 +974,13 @@ const App: React.FC = () => {
           )}
 
           <section className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-6">
-            <aside className="space-y-4">
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><Filter size={14} /> 筛选</div>
-                <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input value={librarySearch} onChange={(e) => setLibrarySearch(e.target.value)} placeholder="搜索标题、标签、正文..." className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-cyan-400" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setLibraryType('all')} className={`px-3 py-2 rounded-lg text-xs font-bold border ${libraryType === 'all' ? 'bg-cyan-500 text-slate-950 border-cyan-400' : 'bg-slate-900 text-slate-400 border-slate-800'}`}>全部</button>
-                  {(Object.keys(ASSET_TYPE_LABELS) as AssetType[]).map(type => (
-                    <button key={type} onClick={() => setLibraryType(type)} className={`px-3 py-2 rounded-lg text-xs font-bold border ${libraryType === type ? 'bg-cyan-500 text-slate-950 border-cyan-400' : 'bg-slate-900 text-slate-400 border-slate-800'}`}>{ASSET_TYPE_LABELS[type]}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">优化方向预设</div>
-                <div className="space-y-2">
-                  {allDirections.map(direction => (
-                    <div key={direction.id} className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                      <div className="text-xs font-bold text-slate-200">{direction.name}</div>
-                      <div className="text-[10px] text-slate-500 mt-1 leading-relaxed">{direction.description}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </aside>
+            <LibraryFilterSidebar
+              directions={allDirections}
+              librarySearch={librarySearch}
+              libraryType={libraryType}
+              onSearchChange={setLibrarySearch}
+              onTypeChange={setLibraryType}
+            />
 
             <section className="grid grid-cols-1 xl:grid-cols-2 gap-4 content-start">
               {filteredAssets.length === 0 ? (
@@ -985,33 +990,13 @@ const App: React.FC = () => {
                   <p className="text-sm text-slate-500 mt-2">新建资产，或导入 Markdown、Word、Excel、JSON 生成资产草稿。</p>
                 </div>
               ) : filteredAssets.map(asset => (
-                <article key={asset.id} className="bg-slate-950 border border-slate-800 rounded-xl p-5 space-y-4 hover:border-slate-700 transition-colors">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="px-2 py-1 text-[10px] font-bold rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-300">{ASSET_TYPE_LABELS[asset.type]}</span>
-                        {asset.integration.entryName && <span className="px-2 py-1 text-[10px] rounded-md bg-slate-900 border border-slate-800 text-slate-400">{asset.integration.entryName}</span>}
-                      </div>
-                      <h3 className="text-base font-bold text-slate-100">{asset.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">{asset.summary || '暂无摘要'}</p>
-                    </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => setAssetDraft(asset)} className="p-2 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-slate-900" title="编辑"><Edit3 size={16} /></button>
-                      <button onClick={() => deleteAsset(asset.id)} className="p-2 rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-900" title="删除"><Trash2 size={16} /></button>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {asset.tags.slice(0, 6).map(tag => <span key={tag} className="px-2 py-1 rounded-md bg-slate-900 text-[10px] text-slate-400 border border-slate-800">{tag}</span>)}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500">
-                    <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">能力 {asset.integration.capabilities.length}</div>
-                    <div className="bg-slate-900 border border-slate-800 rounded-lg p-2">用例 {asset.useCases.length}</div>
-                  </div>
-                  <div className="text-xs text-slate-400 bg-slate-900 border border-slate-800 rounded-lg p-3 line-clamp-4 whitespace-pre-wrap">{asset.content || '暂无正文内容'}</div>
-                  <button onClick={() => injectAssetToWorkspace(asset.id)} className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-200">
-                    注入到工作台 <ArrowRight size={14} />
-                  </button>
-                </article>
+                <AssetLibraryCard
+                  key={asset.id}
+                  asset={asset}
+                  onEdit={setAssetDraft}
+                  onDelete={deleteAsset}
+                  onInject={injectAssetToWorkspace}
+                />
               ))}
             </section>
           </section>
