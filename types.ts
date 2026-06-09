@@ -33,6 +33,8 @@ export type AssetType =
   | 'parser'
   | 'benchmark';
 
+export type CapabilityStatus = 'context_only' | 'schema_ready' | 'testable' | 'connected' | 'executable';
+
 export interface AssetIntegration {
   entryName: string;
   capabilities: string[];
@@ -275,6 +277,12 @@ export interface PromptAsset {
   integration: AssetIntegration;
   schema?: AssetSchema;
   examples: string[];
+  status?: CapabilityStatus;
+  qualityScore?: number;
+  usageCount?: number;
+  lastUsedAt?: number;
+  source?: string;
+  version?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -391,6 +399,9 @@ export interface PromptRun {
   output: string;
   metrics: Record<string, number>;
   feedbackEvents: FeedbackEvent[];
+  status?: 'preview_only' | 'completed' | 'missing_provider_config' | 'failed';
+  provider?: string;
+  error?: string;
   createdAt: number;
 }
 
@@ -442,6 +453,19 @@ export interface RunLabComparison {
   createdAt: number;
 }
 
+export interface RunLabRunResult {
+  id: string;
+  compilationId: string;
+  status: 'preview_only' | 'completed' | 'missing_provider_config' | 'failed';
+  provider: string;
+  model: string;
+  input: string;
+  output: string;
+  metrics: Record<string, number>;
+  message: string;
+  createdAt: number;
+}
+
 export interface FeedbackInsights {
   totalEvents: number;
   patchCount: number;
@@ -467,6 +491,99 @@ export interface BackendHealth {
   docsCount: number;
   dataDirReady: boolean;
   timestamp: number;
+}
+
+export type RuntimeConfigState = 'configured' | 'missing_provider_config' | 'unconfigured' | 'unknown';
+
+export type MarketMode = 'local' | 'remote' | 'disabled' | 'unknown';
+
+export type ImportSourceKind = 'file' | 'json' | 'external-url' | 'market' | 'local' | 'unknown';
+
+export interface CapabilityProviderStatus {
+  provider: string;
+  configured: boolean;
+  status: CapabilityStatus;
+  configState: RuntimeConfigState;
+  message: string;
+  requiredEnvVars: string[];
+  optionalEnvVars: string[];
+}
+
+export interface RuntimeStateStatus {
+  ok: boolean;
+  mode: 'backend_json' | 'local_storage_fallback' | 'unavailable';
+  dataDirReady: boolean;
+  collections: string[];
+  localStorageKeys: string[];
+  message: string;
+}
+
+export interface MarketRuntimeStatus {
+  mode: MarketMode;
+  configured: boolean;
+  status: CapabilityStatus;
+  message: string;
+  remoteAccountConfigured: boolean;
+}
+
+export interface ImportRuntimeStatus {
+  supportedSources: ImportSourceKind[];
+  executableSources: ImportSourceKind[];
+  defaultStatusForExecutableAssets: CapabilityStatus;
+  message: string;
+}
+
+export interface ToolingRuntimeStatus {
+  type: 'mcp' | 'sdk' | 'tool' | 'connector';
+  status: CapabilityStatus;
+  configured: boolean;
+  executable: boolean;
+  requiresConfirmation: boolean;
+  message: string;
+}
+
+export interface ExecutionGateStatus {
+  modelExecutionAllowed: boolean;
+  toolExecutionAllowed: boolean;
+  requiresExplicitConfirmation: boolean;
+  missingConfiguration: string[];
+  message: string;
+}
+
+export interface CapabilityCheck {
+  backend: {
+    ok: boolean;
+    stateCollections: string[];
+    apiBaseUrl?: string;
+    state?: RuntimeStateStatus;
+  };
+  model: CapabilityProviderStatus & {
+    provider: 'gemini';
+  };
+  assets: {
+    mcp: CapabilityStatus;
+    sdk: CapabilityStatus;
+    tool: CapabilityStatus;
+    connector: CapabilityStatus;
+  };
+  market?: MarketRuntimeStatus;
+  imports?: ImportRuntimeStatus;
+  tooling?: {
+    mcp: ToolingRuntimeStatus;
+    sdk: ToolingRuntimeStatus;
+    tool: ToolingRuntimeStatus;
+    connector: ToolingRuntimeStatus;
+  };
+  execution?: ExecutionGateStatus;
+  timestamp: number;
+}
+
+export interface AssetPatchApplyResult {
+  ok: boolean;
+  asset?: PromptAsset;
+  patchId: string;
+  appliedAt: number;
+  message: string;
 }
 
 export interface ArchitectureManifest {
