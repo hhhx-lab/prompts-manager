@@ -1,5 +1,5 @@
 import { AssetBuilderDraft, AssetType, PromptAsset, TaskModel } from '../types';
-import { ASSET_TYPE_FORMATS, ASSET_TYPE_LABELS, applyAssetFormatTemplate, createBlankAsset } from './library';
+import { ASSET_TYPE_FORMATS, ASSET_TYPE_LABELS, applyAssetFormatTemplate, createBlankAsset, defaultCapabilityStatusForType } from './library';
 
 export const ALL_ASSET_TYPES = Object.keys(ASSET_TYPE_LABELS) as AssetType[];
 
@@ -46,9 +46,24 @@ export const assetBuilderDraftToPromptAsset = (draft: AssetBuilderDraft): Prompt
     useCases: draft.nextSteps,
     integration: draft.integration,
     examples: draft.warnings,
+    status: defaultCapabilityStatusForType(draft.assetType),
+    qualityScore: estimateDraftQuality(draft),
+    usageCount: 0,
+    source: 'builder',
+    version: 1,
     createdAt: now,
     updatedAt: now
   }, draft.assetType);
+};
+
+const estimateDraftQuality = (draft: AssetBuilderDraft): number => {
+  let score = 55;
+  if (draft.title.trim()) score += 8;
+  if (draft.summary.trim()) score += 8;
+  if (draft.content.trim().length > 160) score += 12;
+  if (draft.integration.capabilities.length > 0) score += 8;
+  if (draft.schemaPreview.length > 0) score += 6;
+  return Math.min(96, score);
 };
 
 const buildCapabilities = (type: AssetType): string[] => {
