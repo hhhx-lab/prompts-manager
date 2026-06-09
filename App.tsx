@@ -46,6 +46,8 @@ import {
   EvaluatorAssetSchema,
   HistoryEntry,
   MemoryAssetSchema,
+  MarketConflictStrategy,
+  MarketItem,
   McpAssetSchema,
   OptimizationDirection,
   ParserAssetSchema,
@@ -93,17 +95,20 @@ import { KnowledgeBaseView } from './components/knowledge/KnowledgeBaseView';
 import { SettingsView } from './components/settings/SettingsView';
 import { PromptOpsWorkspace } from './components/workspace/PromptOpsWorkspace';
 import { CapabilityPacksView } from './components/packs/CapabilityPacksView';
+import { MarketplaceView } from './components/marketplace/MarketplaceView';
 import { Badge, Button, EmptyState, PageHeader, StatusPill } from './components/ui/DesignSystem';
 import { importAssetFromUrlRemote } from './services/apiClient';
 import { useCapabilityPacks } from './hooks/useCapabilityPacks';
 import { getPackAssetIds } from './services/capabilityPacks';
+import { useMarketplace } from './hooks/useMarketplace';
+import { installMarketItem } from './services/marketplace';
 
 type ViewMode = AppViewMode;
 
 const resolveViewFromHash = (): ViewMode => {
   if (typeof window === 'undefined') return 'workspace';
   const hash = window.location.hash.replace('#', '');
-  if (['workspace', 'library', 'packs', 'builder', 'runlab', 'feedback', 'knowledge', 'settings', 'ops'].includes(hash)) return hash as ViewMode;
+  if (['workspace', 'library', 'packs', 'market', 'builder', 'runlab', 'feedback', 'knowledge', 'settings', 'ops'].includes(hash)) return hash as ViewMode;
   return 'workspace';
 };
 
@@ -120,7 +125,15 @@ const App: React.FC = () => {
   const [history, setHistory] = usePromptHistory();
 
   const { assets, setAssets, customDirections, setCustomDirections } = useAssetLibrary();
-  const { capabilityPacks, saveCapabilityPack, deleteCapabilityPack } = useCapabilityPacks();
+  const { capabilityPacks, setCapabilityPacks, saveCapabilityPack, deleteCapabilityPack } = useCapabilityPacks();
+  const {
+    marketItems,
+    saveMarketItem,
+    saveMarketItems,
+    deleteMarketItem,
+    backendReady: marketplaceBackendReady,
+    backendError: marketplaceBackendError
+  } = useMarketplace();
   const allDirections = useMemo(() => [...BUILT_IN_DIRECTIONS, ...customDirections], [customDirections]);
   const [selectedDirectionIds, setSelectedDirectionIds] = useState<string[]>([]);
   const [customDirection, setCustomDirection] = useState('');
@@ -532,6 +545,14 @@ const App: React.FC = () => {
     openView('builder');
   };
 
+  const installMarketEntry = (item: MarketItem, strategy: MarketConflictStrategy) => {
+    const installed = installMarketItem(item, assets, capabilityPacks, strategy);
+    setAssets(installed.assets);
+    setCapabilityPacks(installed.packs);
+    saveMarketItem(installed.item);
+    return installed.result;
+  };
+
   const toggleDirection = (id: string) => {
     setSelectedDirectionIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
@@ -780,6 +801,20 @@ const App: React.FC = () => {
             onUse={useCapabilityPack}
             onImportAssets={(incomingAssets) => setAssets(previous => mergeImportedAssets(previous, incomingAssets))}
             onOpenBuilder={openBuilderForPackSlot}
+          />
+        );
+      case 'market':
+        return (
+          <MarketplaceView
+            assets={assets}
+            packs={capabilityPacks}
+            marketItems={marketItems}
+            backendReady={marketplaceBackendReady}
+            backendError={marketplaceBackendError}
+            onSaveMarketItem={saveMarketItem}
+            onSaveMarketItems={saveMarketItems}
+            onDeleteMarketItem={deleteMarketItem}
+            onInstallMarketItem={installMarketEntry}
           />
         );
       case 'builder':

@@ -327,6 +327,60 @@ export interface CapabilityPack {
   updatedAt: number;
 }
 
+export type MarketItemType = 'asset' | 'capability_pack' | 'bundle';
+
+export type MarketCategory =
+  | 'prompting'
+  | 'skill'
+  | 'workflow'
+  | 'tooling'
+  | 'evaluation'
+  | 'policy'
+  | 'reference'
+  | 'productivity'
+  | 'local';
+
+export type MarketConflictStrategy = 'overwrite' | 'duplicate' | 'skip';
+
+export interface MarketItemPayload {
+  asset?: PromptAsset;
+  pack?: CapabilityPack;
+  assets?: PromptAsset[];
+}
+
+export interface MarketItem {
+  id: string;
+  itemType: MarketItemType;
+  category: MarketCategory;
+  title: string;
+  summary: string;
+  author: string;
+  scenario: string;
+  tags: string[];
+  assetTypes: AssetType[];
+  capabilityStatus: CapabilityStatus;
+  includedAssetIds: string[];
+  payload: MarketItemPayload;
+  safetyNotes: string[];
+  downloads: number;
+  rating: number;
+  version: number;
+  source: 'local' | 'import' | 'remote';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MarketInstallResult {
+  ok: boolean;
+  installedAssetIds: string[];
+  installedPackIds: string[];
+  overwrittenIds: string[];
+  duplicatedIds: string[];
+  skippedIds: string[];
+  warnings: string[];
+  message: string;
+}
+
 export type CompileMode = 'readable' | 'strict' | 'tool-ready' | 'agent-ready' | 'eval-ready';
 
 export interface TaskModel {

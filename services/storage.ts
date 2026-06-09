@@ -9,6 +9,7 @@ export const FEEDBACK_EVENTS_STORAGE_KEY = 'promptmaster_feedback_events_v1';
 export const ASSET_GRAPH_STORAGE_KEY = 'promptmaster_asset_graph_v1';
 export const ASSET_PATCHES_STORAGE_KEY = 'promptmaster_asset_patches_v1';
 export const CAPABILITY_PACKS_STORAGE_KEY = 'promptmaster_capability_packs_v1';
+export const MARKET_ITEMS_STORAGE_KEY = 'promptmaster_market_items_v1';
 
 export const readJson = <T>(key: string, fallback: T): T => {
   try {
