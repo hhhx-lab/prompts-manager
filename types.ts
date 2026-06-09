@@ -468,10 +468,17 @@ export interface FeedbackEvent {
   timestamp: number;
 }
 
+export type PatchTargetKind = 'asset' | 'capability_pack';
+export type PatchReviewStatus = 'pending' | 'accepted' | 'rejected' | 'snoozed';
+
 export interface AssetPatch {
   id: string;
+  targetKind?: PatchTargetKind;
   targetAssetId?: string;
   targetAssetTitle?: string;
+  targetPackId?: string;
+  targetPackTitle?: string;
+  status?: PatchReviewStatus;
   suggestedAssetType: AssetType;
   reason: string;
   evidenceEvents: string[];
@@ -482,6 +489,8 @@ export interface AssetPatch {
   }[];
   expectedImpact: string;
   risk: string;
+  source?: string;
+  reviewedAt?: number;
   createdAt: number;
 }
 
@@ -557,6 +566,34 @@ export interface RunLabRunResult {
   output: string;
   metrics: Record<string, number>;
   message: string;
+  createdAt: number;
+}
+
+export interface EvaluatorResult {
+  id: string;
+  runId: string;
+  evaluatorAssetId?: string;
+  evaluatorTitle?: string;
+  dimensions: string[];
+  passThreshold: string;
+  scores: Record<string, number>;
+  summary: string;
+  unavailableReason?: string;
+  createdAt: number;
+}
+
+export interface BenchmarkRun {
+  id: string;
+  targetType: 'baseline' | 'assets' | 'capability_pack';
+  packId?: string;
+  packTitle?: string;
+  assetIds: string[];
+  input: string;
+  expectedOutput: string;
+  actualOutput: string;
+  metrics: Record<string, number | string>;
+  compilationId?: string;
+  runId?: string;
   createdAt: number;
 }
 

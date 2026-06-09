@@ -1,4 +1,4 @@
-import { AssetType, CapabilityPack, CapabilityPackSlot, CapabilityPackSlotKey, PromptAsset } from '../types';
+import { AssetPatch, AssetType, CapabilityPack, CapabilityPackSlot, CapabilityPackSlotKey, PromptAsset } from '../types';
 
 export const CAPABILITY_PACK_SLOTS: CapabilityPackSlot[] = [
   { key: 'prompt', label: '核心 Prompt', acceptedTypes: ['prompt'], assetIds: [], role: '定义主任务和输出结构', required: true },
@@ -84,3 +84,28 @@ const inferPackTags = (input: string): string[] => {
 };
 
 export const slotAcceptsType = (slot: CapabilityPackSlot, type: AssetType) => slot.acceptedTypes.includes(type);
+
+export const applyCapabilityPackPatch = (pack: CapabilityPack, patch: AssetPatch): CapabilityPack => {
+  const now = Date.now();
+  let next: CapabilityPack = {
+    ...pack,
+    version: Number(pack.version || 1) + 1,
+    tags: Array.from(new Set([...pack.tags, 'feedback-patch', `patch:${patch.id}`])).slice(0, 16),
+    updatedAt: now
+  };
+
+  for (const change of patch.changes || []) {
+    const field = change.fieldPath.toLowerCase();
+    if (field.includes('name') || field.includes('title')) next = { ...next, name: change.after || next.name };
+    else if (field.includes('scenario')) next = { ...next, scenario: change.after || next.scenario };
+    else if (field.includes('tag')) next = { ...next, tags: Array.from(new Set([...next.tags, ...change.after.split(/\n|,|，/).map(item => item.trim()).filter(Boolean)])) };
+    else if (field.includes('expected')) next = { ...next, expectedOutputs: mergeLines(next.expectedOutputs, change.after) };
+    else if (field.includes('input')) next = { ...next, typicalInputs: mergeLines(next.typicalInputs, change.after) };
+    else next = { ...next, summary: [next.summary, `Patch ${patch.id}: ${change.after}`].filter(Boolean).join('\n') };
+  }
+
+  return refreshCapabilityPackQuality(next);
+};
+
+const mergeLines = (current: string[], incoming: string) =>
+  Array.from(new Set([...current, ...incoming.split(/\n|；|;|,|，/).map(item => item.trim()).filter(Boolean)]));

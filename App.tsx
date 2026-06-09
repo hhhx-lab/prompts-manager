@@ -830,9 +830,18 @@ const App: React.FC = () => {
           />
         );
       case 'runlab':
-        return <RunLabWorkbench assets={assets} directions={allDirections} scenario={scenario} />;
+        return <RunLabWorkbench assets={assets} capabilityPacks={capabilityPacks} directions={allDirections} scenario={scenario} />;
       case 'feedback':
-        return <FeedbackWorkbench assets={assets} directions={allDirections} scenario={scenario} setAssets={setAssets} />;
+        return (
+          <FeedbackWorkbench
+            assets={assets}
+            directions={allDirections}
+            scenario={scenario}
+            setAssets={setAssets}
+            capabilityPacks={capabilityPacks}
+            setCapabilityPacks={setCapabilityPacks}
+          />
+        );
       case 'knowledge':
         return <KnowledgeBaseView />;
       case 'settings':

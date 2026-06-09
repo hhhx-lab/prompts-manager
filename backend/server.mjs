@@ -8,7 +8,7 @@ const rootDir = path.resolve(__dirname, '..');
 const docsDir = path.join(rootDir, 'docs');
 const dataDir = path.join(rootDir, 'data');
 const port = Number(process.env.API_PORT || process.env.PORT || 8787);
-const STATE_COLLECTIONS = ['assets', 'directions', 'taskModels', 'compilations', 'runs', 'feedbackEvents', 'assetPatches', 'assetGraph', 'capabilityPacks', 'marketItems'];
+const STATE_COLLECTIONS = ['assets', 'directions', 'taskModels', 'compilations', 'runs', 'feedbackEvents', 'assetPatches', 'assetGraph', 'capabilityPacks', 'marketItems', 'evaluatorResults', 'benchmarkRuns'];
 const LOCAL_STORAGE_KEYS = [
   'promptmaster_asset_library_v1',
   'promptmaster_directions_v1',
@@ -20,7 +20,9 @@ const LOCAL_STORAGE_KEYS = [
   'promptmaster_asset_graph_v1',
   'promptmaster_asset_patches_v1',
   'promptmaster_capability_packs_v1',
-  'promptmaster_market_items_v1'
+  'promptmaster_market_items_v1',
+  'promptmaster_evaluator_results_v1',
+  'promptmaster_benchmark_runs_v1'
 ];
 
 const ASSET_SLOT_TYPES = {
