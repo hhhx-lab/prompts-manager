@@ -141,6 +141,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ assetCount, directio
             <InfoBlock label="市场" value={marketStatus?.message || '本地市场模式；不代表远程账号、审核或执行权限。'} />
             <InfoBlock label="导入" value={importStatus?.message || '文件、JSON、外部链接和市场导入默认作为上下文或 schema 使用。'} />
             <InfoBlock label="执行确认" value={executionStatus?.requiresExplicitConfirmation ? '任何真实 MCP/SDK/Tool/Connector 执行都需要配置检测和用户显式确认。' : '未返回执行确认状态，按不可执行处理。'} wide />
+            <InfoBlock label="不可直接提升" value="context_only 或 schema_ready 只能参与编译和校验；未检测到连接证据时，设置页不提供提升为 executable 的入口。" wide />
+            <InfoBlock label="缺失配置" value={(executionStatus?.missingConfiguration || ['MCP/SDK/Tool/Connector runtime']).join('、')} wide />
           </div>
         </Panel>
 
