@@ -8,6 +8,18 @@ const rootDir = path.resolve(__dirname, '..');
 const docsDir = path.join(rootDir, 'docs');
 const dataDir = path.join(rootDir, 'data');
 const port = Number(process.env.API_PORT || process.env.PORT || 8787);
+const STATE_COLLECTIONS = ['assets', 'directions', 'taskModels', 'compilations', 'runs', 'feedbackEvents', 'assetPatches', 'assetGraph'];
+const LOCAL_STORAGE_KEYS = [
+  'promptmaster_asset_library_v1',
+  'promptmaster_directions_v1',
+  'promptmaster_history_v2',
+  'promptmaster_task_models_v1',
+  'promptmaster_prompt_compilations_v1',
+  'promptmaster_prompt_runs_v1',
+  'promptmaster_feedback_events_v1',
+  'promptmaster_asset_graph_v1',
+  'promptmaster_asset_patches_v1'
+];
 
 const ASSET_SLOT_TYPES = {
   'task-frame': ['prompt', 'template'],
@@ -36,7 +48,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, {
         ok: true,
         service: 'promptmaster-api',
-        version: '2.0-local',
+        version: '2.1-local',
         docsCount: docs.length,
         dataDirReady: true,
         timestamp: Date.now()
@@ -51,7 +63,7 @@ const server = http.createServer(async (req, res) => {
 
     if (route === 'GET /api/architecture') {
       sendJson(res, {
-        name: '提示词大师 Pro 2.0',
+        name: '提示词大师 Pro 2.1',
         stack: {
           frontend: 'React 19 + Vite + TypeScript',
           backend: 'Node.js ESM local API',
@@ -70,7 +82,10 @@ const server = http.createServer(async (req, res) => {
           'POST /api/prompt/compile',
           'POST /api/feedback/diagnose',
           'POST /api/assets/build-draft',
+          'POST /api/assets/apply-patch',
           'POST /api/run-lab/compare',
+          'POST /api/run-lab/run',
+          'POST /api/capabilities/check',
           'POST /api/feedback/insights'
         ]
       });
@@ -101,9 +116,26 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (route === 'POST /api/assets/apply-patch') {
+      const body = await readJsonBody(req);
+      sendJson(res, await applyAssetPatch(body.patch, body.assets || []));
+      return;
+    }
+
     if (route === 'POST /api/run-lab/compare') {
       const body = await readJsonBody(req);
       sendJson(res, compareRunLab(body.task, body.selectedAssets || [], body.directions || [], body.mode || 'strict'));
+      return;
+    }
+
+    if (route === 'POST /api/run-lab/run') {
+      const body = await readJsonBody(req);
+      sendJson(res, await runPrompt(body.compilation, body.input || '', body.model || 'gemini-3-flash-preview'));
+      return;
+    }
+
+    if (route === 'POST /api/capabilities/check' || route === 'GET /api/capabilities/check') {
+      sendJson(res, buildCapabilityCheck());
       return;
     }
 
@@ -441,6 +473,204 @@ function buildFeedbackInsights(events, patches) {
   };
 }
 
+function buildCapabilityCheck() {
+  const modelConfigured = Boolean(process.env.GEMINI_API_KEY);
+  const modelStatus = modelConfigured ? 'connected' : 'context_only';
+  const tooling = {
+    mcp: buildToolingStatus('mcp'),
+    sdk: buildToolingStatus('sdk'),
+    tool: buildToolingStatus('tool'),
+    connector: buildToolingStatus('connector')
+  };
+  const missingConfiguration = [
+    modelConfigured ? '' : 'GEMINI_API_KEY',
+    ...Object.values(tooling).flatMap(item => item.configured ? [] : [`${item.type.toUpperCase()} runtime`])
+  ].filter(Boolean);
+
+  return {
+    backend: {
+      ok: true,
+      apiBaseUrl: `http://127.0.0.1:${port}`,
+      stateCollections: STATE_COLLECTIONS,
+      state: {
+        ok: true,
+        mode: 'backend_json',
+        dataDirReady: true,
+        collections: STATE_COLLECTIONS,
+        localStorageKeys: LOCAL_STORAGE_KEYS,
+        message: '后端 JSON state 已启用，本地 localStorage keys 仅作为兼容缓存和离线兜底。'
+      }
+    },
+    model: {
+      provider: 'gemini',
+      configured: modelConfigured,
+      status: modelStatus,
+      configState: modelConfigured ? 'configured' : 'missing_provider_config',
+      requiredEnvVars: ['GEMINI_API_KEY'],
+      optionalEnvVars: ['API_PORT', 'VITE_API_BASE_URL'],
+      message: modelConfigured
+        ? 'GEMINI_API_KEY 已配置，Run Lab 可以尝试真实模型运行。'
+        : '未配置 GEMINI_API_KEY，Run Lab 将明确降级为仅编译预览。'
+    },
+    assets: {
+      mcp: tooling.mcp.status,
+      sdk: tooling.sdk.status,
+      tool: tooling.tool.status,
+      connector: tooling.connector.status
+    },
+    market: {
+      mode: 'local',
+      configured: true,
+      status: 'schema_ready',
+      remoteAccountConfigured: false,
+      message: '当前为本地市场模式：资产和能力包可作为上下文或结构化 schema 使用，不代表远程账号或执行权限。'
+    },
+    imports: {
+      supportedSources: ['file', 'json', 'external-url', 'market', 'local'],
+      executableSources: [],
+      defaultStatusForExecutableAssets: 'context_only',
+      message: 'market 与 external-url 导入的 MCP/SDK/Tool/Connector 默认不可执行，需要连接配置和显式确认。'
+    },
+    tooling,
+    execution: {
+      modelExecutionAllowed: modelConfigured,
+      toolExecutionAllowed: false,
+      requiresExplicitConfirmation: true,
+      missingConfiguration,
+      message: modelConfigured
+        ? '模型可尝试运行；MCP/SDK/Tool/Connector 仍仅作为上下文，未开放真实执行。'
+        : '缺少模型密钥，模型运行降级为仅编译预览；工具类能力仍不可执行。'
+    },
+    timestamp: Date.now()
+  };
+}
+
+function buildToolingStatus(type) {
+  return {
+    type,
+    status: 'context_only',
+    configured: false,
+    executable: false,
+    requiresConfirmation: true,
+    message: `${type.toUpperCase()} 当前仅作为提示词工程上下文使用；未检测到运行时连接，因此不可执行。`
+  };
+}
+
+async function runPrompt(compilation, input, model) {
+  const prompt = compilation?.compiledPrompt || '';
+  const createdAt = Date.now();
+  const base = {
+    id: createId('run'),
+    compilationId: compilation?.id || 'preview',
+    provider: 'gemini',
+    model,
+    input,
+    createdAt
+  };
+
+  if (!process.env.GEMINI_API_KEY) {
+    return {
+      ...base,
+      status: 'missing_provider_config',
+      output: prompt,
+      metrics: promptMetrics(prompt, 0),
+      message: '未配置 GEMINI_API_KEY，本次只保存编译预览，不执行模型调用。'
+    };
+  }
+
+  try {
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const response = await ai.models.generateContent({
+      model,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: `${prompt}\n\n---\n测试输入：\n${input || '请基于上方 Prompt 输出一次示例结果。'}` }]
+        }
+      ]
+    });
+    const output = response.text || '';
+    return {
+      ...base,
+      status: 'completed',
+      output,
+      metrics: promptMetrics(prompt, output.length),
+      message: '模型运行完成，结果已写入本地运行记录。'
+    };
+  } catch (error) {
+    return {
+      ...base,
+      status: 'failed',
+      output: prompt,
+      metrics: promptMetrics(prompt, 0),
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function applyAssetPatch(patch, assets) {
+  if (!patch?.id) {
+    return {
+      ok: false,
+      patchId: '',
+      appliedAt: Date.now(),
+      message: '缺少 patch id，无法应用补丁。'
+    };
+  }
+
+  const target = patch.targetAssetId
+    ? assets.find(asset => asset.id === patch.targetAssetId)
+    : assets[0];
+
+  if (!target) {
+    return {
+      ok: false,
+      patchId: patch.id,
+      appliedAt: Date.now(),
+      message: '没有找到可应用补丁的资产。'
+    };
+  }
+
+  const appliedAt = Date.now();
+  const patchSummary = [
+    target.content || '',
+    '',
+    '---',
+    `AssetPatch ${patch.id}`,
+    `Reason: ${patch.reason}`,
+    ...(patch.changes || []).map(change => `${change.fieldPath}: ${change.after}`)
+  ].join('\n').trim();
+
+  const asset = {
+    ...target,
+    content: patchSummary,
+    version: Number(target.version || 1) + 1,
+    qualityScore: Math.min(100, Number(target.qualityScore || 72) + 3),
+    status: target.status || inferAssetStatus(target),
+    updatedAt: appliedAt
+  };
+
+  const nextAssets = [asset, ...assets.filter(item => item.id !== asset.id)];
+  await writeStateCollection('assets', nextAssets);
+
+  return {
+    ok: true,
+    asset,
+    patchId: patch.id,
+    appliedAt,
+    message: `补丁已应用到资产「${asset.title}」，生成版本 v${asset.version}。`
+  };
+}
+
+function promptMetrics(prompt, outputLength) {
+  return {
+    promptLength: String(prompt || '').length,
+    outputLength,
+    sectionCount: (String(prompt || '').match(/^#/gm) || []).length
+  };
+}
+
 function compilationMetrics(compilation) {
   return {
     promptLength: compilation.compiledPrompt.length,
@@ -629,7 +859,7 @@ async function readStateCollection(collection) {
   try {
     return JSON.parse(await fs.readFile(file, 'utf8'));
   } catch (error) {
-    if (error.code === 'ENOENT') return null;
+    if (error.code === 'ENOENT') return STATE_COLLECTIONS.includes(collection) ? [] : null;
     throw error;
   }
 }
@@ -642,6 +872,12 @@ async function writeStateCollection(collection, value) {
 function getStateFile(collection) {
   if (!/^[a-zA-Z0-9_-]+$/.test(collection)) throw new Error('Invalid collection name');
   return path.join(dataDir, `${collection}.json`);
+}
+
+function inferAssetStatus(asset) {
+  if (!asset?.schema) return 'context_only';
+  if (['mcp', 'sdk', 'tool', 'connector'].includes(asset.type)) return 'schema_ready';
+  return 'schema_ready';
 }
 
 async function readJsonBody(req) {
