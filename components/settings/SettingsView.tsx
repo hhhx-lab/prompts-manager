@@ -167,10 +167,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ assetCount, directio
 
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Panel title="后端 State Collections" icon={<Database size={18} className="text-zinc-400" />}>
-          <div className="flex flex-wrap gap-2">
-            {(capability?.backend.stateCollections || []).map(collection => (
-              <span key={collection} className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-300">{collection}</span>
-            ))}
+          <div className="space-y-3">
+            <InfoBlock label="主存储" value={stateStatus?.message || '后端 JSON state 是主要持久化入口；不可用时前端保留 localStorage 兼容缓存。'} />
+            <div className="flex flex-wrap gap-2">
+              {(capability?.backend.stateCollections || stateStatus?.collections || []).map(collection => (
+                <span key={collection} className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-300">{collection}</span>
+              ))}
+            </div>
+            {!(capability?.backend.stateCollections || stateStatus?.collections || []).length && (
+              <div className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-500">暂无后端 collection 返回，按本地兼容缓存处理。</div>
+            )}
           </div>
         </Panel>
 
@@ -181,6 +187,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ assetCount, directio
                 {key}
               </div>
             ))}
+          </div>
+        </Panel>
+      </section>
+
+      <section>
+        <Panel title="数据备份与导入导出" icon={<UploadCloud size={18} className="text-zinc-400" />}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <InfoBlock label="备份对象" value="资产、方向、任务模型、编译记录、运行记录、反馈事件、资产补丁和资产图谱都属于本地 JSON state。" />
+            <InfoBlock label="迁移方式" value="优先使用资产库或能力包的 JSON 导入导出；必要时备份 data/ 下对应 collection JSON 文件。" />
+            <InfoBlock label="降级策略" value="后端 state 不可用时，前端仍可读取兼容 localStorage keys；恢复后再同步到后端 state。" />
           </div>
         </Panel>
       </section>
