@@ -72,6 +72,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ assetCount, directio
     getCapabilityCheck().then(setCapability).catch(() => setCapability(null));
   }, []);
 
+  const capabilityUnavailable = capability === null;
   const modelConfigured = Boolean(capability?.model?.configured);
   const modelStatus = modelConfigured ? 'connected' : safeCapabilityStatus(capability?.model?.status);
   const backendOk = Boolean(capability?.backend?.ok);
@@ -79,6 +80,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ assetCount, directio
   const marketStatus = capability?.market;
   const importStatus = capability?.imports;
   const executionStatus = capability?.execution;
+  const modelValue = capabilityUnavailable ? '未检测' : modelConfigured ? '已配置' : '缺密钥';
+  const modelDetail = capabilityUnavailable
+    ? '后端未返回能力检测；模型运行按仅编译预览处理。'
+    : capability?.model?.message || '等待后端能力检测';
 
   return (
   <div className="h-full overflow-y-auto custom-scrollbar bg-zinc-950">
@@ -92,7 +97,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ assetCount, directio
 
       <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         <StatusCard icon={<Database size={18} />} label="后端 API" value={backendOk ? '在线' : '待检测'} tone={backendOk ? 'good' : 'warn'} detail={capability?.backend?.apiBaseUrl || '等待本地 API 能力检测'} />
-        <StatusCard icon={<ShieldCheck size={18} />} label="模型 Provider" value={modelConfigured ? '已配置' : '缺密钥'} tone={modelConfigured ? 'good' : 'warn'} detail={capability?.model?.message || '等待后端能力检测'} />
+        <StatusCard icon={<ShieldCheck size={18} />} label="模型 Provider" value={modelValue} tone={modelConfigured ? 'good' : 'warn'} detail={modelDetail} />
         <StatusCard icon={<Database size={18} />} label="本地 State" value={stateStatus?.mode === 'backend_json' ? 'JSON State' : '兜底模式'} tone={stateStatus?.ok ? 'good' : 'neutral'} detail={stateStatus?.message || '后端 state 未返回时保留 localStorage 兼容说明'} />
         <StatusCard icon={<Store size={18} />} label="市场模式" value={marketStatus?.mode === 'local' ? '本地市场' : '未配置'} tone={marketStatus?.configured ? 'neutral' : 'warn'} detail={marketStatus?.message || '默认不启用远程市场账号'} />
         <StatusCard icon={<Workflow size={18} />} label="工具执行" value={executionStatus?.toolExecutionAllowed ? '可执行' : '不可执行'} tone={executionStatus?.toolExecutionAllowed ? 'good' : 'warn'} detail={executionStatus?.message || 'MCP/SDK/Tool/Connector 默认仅作为上下文'} />
@@ -109,7 +114,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ assetCount, directio
 
         <Panel title="环境变量" icon={<KeyRound size={18} className="text-zinc-400" />}>
           <div className="space-y-3">
-            <InfoBlock label="GEMINI_API_KEY" value={modelConfigured ? '已配置：Run Lab 可尝试真实模型运行。' : '未配置：Run Lab 将明确降级为仅编译预览。'} />
+            <InfoBlock label="GEMINI_API_KEY" value={capabilityUnavailable ? '后端未返回能力检测：暂按未配置处理，Run Lab 仅编译预览。' : modelConfigured ? '已配置：Run Lab 可尝试真实模型运行。' : '未配置：Run Lab 将明确降级为仅编译预览。'} />
             <InfoBlock label="API_PORT" value={`默认 8787；当前检测地址：${capability?.backend?.apiBaseUrl || '等待后端返回'}`} />
             <InfoBlock label="VITE_API_BASE_URL" value="默认 http://127.0.0.1:8787，前端用于调用本地 API；修改端口时需要同步。" />
           </div>
@@ -137,7 +142,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ assetCount, directio
         <Panel title="运行边界总览" icon={<ShieldCheck size={18} className="text-zinc-400" />}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <InfoBlock label="后端 API" value={backendOk ? `已连接 ${capability?.backend?.apiBaseUrl || ''}` : '未检测到后端能力；设置页保留静态边界说明。'} />
-            <InfoBlock label="模型运行" value={modelConfigured ? '模型 provider 已连接；Run Lab 可尝试真实模型调用。' : '缺少 GEMINI_API_KEY；工作台和 Run Lab 降级为仅编译预览。'} />
+            <InfoBlock label="模型运行" value={capabilityUnavailable ? '后端能力检测不可用；工作台和 Run Lab 暂按仅编译预览处理。' : modelConfigured ? '模型 provider 已连接；Run Lab 可尝试真实模型调用。' : '缺少 GEMINI_API_KEY；工作台和 Run Lab 降级为仅编译预览。'} />
             <InfoBlock label="市场" value={marketStatus?.message || '本地市场模式；不代表远程账号、审核或执行权限。'} />
             <InfoBlock label="导入" value={importStatus?.message || '文件、JSON、外部链接和市场导入默认作为上下文或 schema 使用。'} />
             <InfoBlock label="执行确认" value={executionStatus?.requiresExplicitConfirmation ? '任何真实 MCP/SDK/Tool/Connector 执行都需要配置检测和用户显式确认。' : '未返回执行确认状态，按不可执行处理。'} wide />
@@ -200,6 +205,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ assetCount, directio
           </div>
         </Panel>
       </section>
+
+      {capabilityUnavailable && (
+        <section>
+          <Panel title="降级模式" icon={<ShieldCheck size={18} className="text-zinc-400" />}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <InfoBlock label="后端检测" value="当前没有拿到 `/api/capabilities/check` 响应，设置页保留静态说明和本地缓存信息。" />
+              <InfoBlock label="模型运行" value="无法确认 provider 配置时，默认不执行模型调用，只显示编译预览或安全降级文案。" />
+              <InfoBlock label="工具能力" value="未知 MCP/SDK/Tool/Connector 状态全部按 context_only 处理，不显示真实执行入口。" />
+            </div>
+          </Panel>
+        </section>
+      )}
     </div>
   </div>
   );
