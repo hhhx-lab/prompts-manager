@@ -82,6 +82,7 @@ const server = http.createServer(async (req, res) => {
           'POST /api/prompt/compile',
           'POST /api/feedback/diagnose',
           'POST /api/assets/build-draft',
+          'POST /api/assets/import-url',
           'POST /api/assets/apply-patch',
           'POST /api/run-lab/compare',
           'POST /api/run-lab/run',
@@ -113,6 +114,12 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /api/assets/build-draft') {
       const body = await readJsonBody(req);
       sendJson(res, buildAssetDraft(body.assetType || 'prompt', body.task, body.input || ''));
+      return;
+    }
+
+    if (route === 'POST /api/assets/import-url') {
+      const body = await readJsonBody(req);
+      sendJson(res, await importAssetFromUrl(body.url || ''));
       return;
     }
 
@@ -543,6 +550,89 @@ function buildCapabilityCheck() {
     },
     timestamp: Date.now()
   };
+}
+
+async function importAssetFromUrl(rawUrl) {
+  const url = String(rawUrl || '').trim();
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, message: '请输入 http 或 https 开头的公开 URL。' };
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'user-agent': 'PromptMasterLocalImporter/1.0'
+      },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!response.ok) {
+      return { ok: false, message: `URL 读取失败：HTTP ${response.status}。可改用手动粘贴或文件导入。` };
+    }
+    const contentType = response.headers.get('content-type') || '';
+    const rawText = await response.text();
+    const text = normalizeImportedUrlText(rawText, contentType).slice(0, 20000);
+    const title = extractHtmlTitle(rawText) || new URL(url).hostname;
+    const type = inferUrlAssetType(url, text);
+    const executableLike = ['mcp', 'sdk', 'tool', 'connector'].includes(type);
+    return {
+      ok: true,
+      message: '已读取公开 URL 并生成资产草稿，请确认后保存。',
+      asset: {
+        type,
+        title: title.slice(0, 80),
+        summary: text.split('\n').map(line => line.trim()).find(Boolean)?.slice(0, 180) || `来自 ${url} 的导入草稿`,
+        content: `来源 URL: ${url}\n\n${text}`,
+        tags: ['external-url', type],
+        useCases: ['从外部资料沉淀为可复用资产', '作为提示词优化上下文注入'],
+        source: 'external-url',
+        status: executableLike ? 'context_only' : 'schema_ready',
+        integration: {
+          entryName: `${type}.${slugify(title || url)}`,
+          capabilities: executableLike ? ['结构化工具/接口文档上下文', '执行边界说明'] : ['资料引用', '上下文注入'],
+          inputs: ['用户提示词', '外部链接内容'],
+          outputs: ['资产草稿', '可注入上下文'],
+          constraints: executableLike ? ['未配置运行时连接前不可执行'] : ['需人工确认内容准确性'],
+          usageNotes: executableLike
+            ? '该资产来自外部链接，默认仅作为上下文或 schema，不代表已经连接、授权或可执行。'
+            : '该资产来自外部链接，保存前请确认来源可信和内容准确。'
+        },
+        examples: [],
+        version: 1
+      }
+    };
+  } catch (error) {
+    return { ok: false, message: `URL 读取失败：${error instanceof Error ? error.message : String(error)}。可改用手动粘贴或文件导入。` };
+  }
+}
+
+function normalizeImportedUrlText(rawText, contentType) {
+  if (contentType.includes('html')) {
+    return rawText
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  return rawText.replace(/\s+\n/g, '\n').trim();
+}
+
+function extractHtmlTitle(rawText) {
+  return rawText.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim();
+}
+
+function inferUrlAssetType(url, text) {
+  const normalized = `${url}\n${text}`.toLowerCase();
+  if (normalized.includes('mcp') || normalized.includes('model context protocol')) return 'mcp';
+  if (normalized.includes('sdk') || normalized.includes('npm install') || normalized.includes('pip install')) return 'sdk';
+  if (normalized.includes('api') || normalized.includes('endpoint') || normalized.includes('tool')) return 'tool';
+  if (normalized.includes('policy') || normalized.includes('合规') || normalized.includes('规则')) return 'policy';
+  if (normalized.includes('workflow') || normalized.includes('流程')) return 'workflow';
+  if (normalized.includes('skill') || normalized.includes('技能')) return 'skill';
+  if (normalized.includes('template') || normalized.includes('模板')) return 'template';
+  return 'reference';
 }
 
 function buildToolingStatus(type) {

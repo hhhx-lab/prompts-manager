@@ -92,6 +92,7 @@ import { KnowledgeBaseView } from './components/knowledge/KnowledgeBaseView';
 import { SettingsView } from './components/settings/SettingsView';
 import { PromptOpsWorkspace } from './components/workspace/PromptOpsWorkspace';
 import { Badge, Button, EmptyState, PageHeader, StatusPill } from './components/ui/DesignSystem';
+import { importAssetFromUrlRemote } from './services/apiClient';
 
 type ViewMode = AppViewMode;
 
@@ -149,6 +150,8 @@ const App: React.FC = () => {
   const [libraryView, setLibraryView] = useState<'table' | 'cards'>('table');
   const [assetDraft, setAssetDraft] = useState<PromptAsset | null>(null);
   const [libraryNotice, setLibraryNotice] = useState('');
+  const [assetUrlInput, setAssetUrlInput] = useState('');
+  const [isImportingUrl, setIsImportingUrl] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatInstance = useRef<any>(null);
@@ -398,6 +401,28 @@ const App: React.FC = () => {
     link.download = `promptmaster-library-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleAssetUrlImport = async () => {
+    const url = assetUrlInput.trim();
+    if (!url) return;
+    setIsImportingUrl(true);
+    setLibraryNotice('');
+    try {
+      const result = await importAssetFromUrlRemote({ url });
+      if (!result.ok || !result.asset) {
+        setLibraryNotice(result.message || 'URL 导入失败，可改用文件导入或手动粘贴内容生成资产草稿。');
+        return;
+      }
+      setAssetDraft(normalizeImportedAsset(result.asset));
+      setLibraryNotice(result.message);
+      setAssetUrlInput('');
+      openView('library');
+    } catch (error) {
+      setLibraryNotice(`URL 导入失败：${error instanceof Error ? error.message : '未知错误'}。可改用文件导入或手动粘贴内容生成资产草稿。`);
+    } finally {
+      setIsImportingUrl(false);
+    }
   };
 
   const saveAssetDraft = () => {
@@ -996,6 +1021,29 @@ const App: React.FC = () => {
               <button onClick={() => setLibraryNotice('')}><X size={16} /></button>
             </div>
           )}
+
+          <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-zinc-200">外部链接导入</div>
+                <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">支持公开网页、GitHub 文档、API/SDK/MCP 文档链接。读取失败时会提示手动粘贴或文件导入。</p>
+              </div>
+              <div className="flex min-w-0 flex-1 gap-2">
+                <input
+                  value={assetUrlInput}
+                  onChange={(event) => setAssetUrlInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') handleAssetUrlImport();
+                  }}
+                  className="field-input min-w-0"
+                  placeholder="https://example.com/docs"
+                />
+                <Button onClick={handleAssetUrlImport} disabled={isImportingUrl || !assetUrlInput.trim()}>
+                  {isImportingUrl ? '导入中' : '生成草稿'}
+                </Button>
+              </div>
+            </div>
+          </section>
 
           <section className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-4">
             <LibraryFilterSidebar

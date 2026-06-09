@@ -50,6 +50,10 @@ export const buildAssetDraftRemote = (payload: {
   input: string;
 }) => request<AssetBuilderDraft>('/api/assets/build-draft', { method: 'POST', body: payload });
 
+export const importAssetFromUrlRemote = (payload: {
+  url: string;
+}) => request<{ ok: boolean; asset?: Partial<PromptAsset>; message: string }>('/api/assets/import-url', { method: 'POST', body: payload });
+
 export const compareRunLabRemote = (payload: {
   task: TaskModel;
   selectedAssets: PromptAsset[];

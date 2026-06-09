@@ -3,6 +3,7 @@ import {
   AssetSchema,
   AssetType,
   BenchmarkAssetSchema,
+  CapabilityStatus,
   ConnectorAssetSchema,
   DatasetAssetSchema,
   EvaluatorAssetSchema,
@@ -39,6 +40,9 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   parser: 'Parser',
   benchmark: 'Benchmark'
 };
+
+export const defaultCapabilityStatusForType = (type: AssetType): CapabilityStatus =>
+  ['mcp', 'sdk', 'tool', 'connector'].includes(type) ? 'context_only' : 'schema_ready';
 
 export interface AssetSchemaFieldFormat {
   label: string;
@@ -532,6 +536,10 @@ export const createBlankAsset = (type: AssetType = 'prompt'): PromptAsset => {
     },
     schema: createDefaultAssetSchema(type),
     examples: [],
+    status: defaultCapabilityStatusForType(type),
+    qualityScore: 72,
+    usageCount: 0,
+    version: 1,
     createdAt: now,
     updatedAt: now
   };
@@ -568,11 +576,15 @@ export const applyAssetFormatTemplate = (
 export const createAssetDraftFromText = (name: string, content: string, type: AssetType = 'reference'): PromptAsset => {
   const cleanedName = name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
   const firstLine = content.split('\n').map(line => line.trim()).find(Boolean) || cleanedName || '未命名资产';
+  const executableLike = ['mcp', 'sdk', 'tool', 'connector'].includes(type);
   return {
     ...applyAssetFormatTemplate(createBlankAsset(type), type),
     title: cleanedName || firstLine.slice(0, 32),
     summary: firstLine.slice(0, 160),
-    content
+    content,
+    tags: ['file-import', type],
+    source: 'file-import',
+    status: executableLike ? 'context_only' : defaultCapabilityStatusForType(type)
   };
 };
 
@@ -608,6 +620,12 @@ export const normalizeImportedAsset = (asset: Partial<PromptAsset>): PromptAsset
       usageNotes: asset.integration?.usageNotes || ''
     },
     schema: normalizeAssetSchema(type, asset.schema),
+    status: asset.status || defaultCapabilityStatusForType(type),
+    qualityScore: typeof asset.qualityScore === 'number' ? asset.qualityScore : 72,
+    usageCount: typeof asset.usageCount === 'number' ? asset.usageCount : 0,
+    lastUsedAt: asset.lastUsedAt,
+    source: asset.source,
+    version: typeof asset.version === 'number' ? asset.version : 1,
     createdAt: asset.createdAt || now,
     updatedAt: now
   };

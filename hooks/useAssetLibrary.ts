@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { OptimizationDirection, PromptAsset } from '../types';
 import { getStarterAssetIntroducedVersion, STARTER_ASSET_PACK_VERSION, STARTER_ASSETS } from '../services/starterAssets';
 import { ASSET_LIBRARY_SEEDED_STORAGE_KEY, ASSET_LIBRARY_STORAGE_KEY, DIRECTIONS_STORAGE_KEY, readJson, writeJson } from '../services/storage';
-import { usePersistentState } from './usePersistentState';
+import { useBackendState } from './useBackendState';
 
 const readStarterAssetPackVersion = () => {
   const saved = readJson<number | boolean>(ASSET_LIBRARY_SEEDED_STORAGE_KEY, 0);
@@ -11,8 +11,8 @@ const readStarterAssetPackVersion = () => {
 };
 
 export const useAssetLibrary = () => {
-  const [assets, setAssets] = usePersistentState<PromptAsset[]>(ASSET_LIBRARY_STORAGE_KEY, []);
-  const [customDirections, setCustomDirections] = usePersistentState<OptimizationDirection[]>(DIRECTIONS_STORAGE_KEY, []);
+  const [assets, setAssets, assetSync] = useBackendState<PromptAsset[]>(ASSET_LIBRARY_STORAGE_KEY, 'assets', []);
+  const [customDirections, setCustomDirections, directionSync] = useBackendState<OptimizationDirection[]>(DIRECTIONS_STORAGE_KEY, 'directions', []);
 
   useEffect(() => {
     const seededVersion = readStarterAssetPackVersion();
@@ -33,6 +33,10 @@ export const useAssetLibrary = () => {
     assets,
     setAssets,
     customDirections,
-    setCustomDirections
+    setCustomDirections,
+    syncStatus: {
+      assets: assetSync,
+      directions: directionSync
+    }
   };
 };
