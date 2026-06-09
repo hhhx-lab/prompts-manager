@@ -1,8 +1,8 @@
 import React from 'react';
-import { Activity, BookOpen, Boxes, CheckCircle2, Database, LayoutDashboard, Settings, ShieldCheck } from 'lucide-react';
+import { Activity, BookOpen, Boxes, CheckCircle2, Database, LayoutDashboard, PackageOpen, Settings, ShieldCheck } from 'lucide-react';
 import { Badge } from '../ui/DesignSystem';
 
-export type AppViewMode = 'workspace' | 'library' | 'builder' | 'runlab' | 'feedback' | 'knowledge' | 'settings' | 'ops';
+export type AppViewMode = 'workspace' | 'library' | 'packs' | 'builder' | 'runlab' | 'feedback' | 'knowledge' | 'settings' | 'ops';
 
 interface AppShellProps {
   activeView: AppViewMode;
@@ -79,6 +79,7 @@ export const AppShell: React.FC<AppShellProps> = ({ activeView, assetCount, chil
 const navItems: Array<{ view: AppViewMode; label: string; description: string; icon: React.ReactNode }> = [
   { view: 'workspace', label: '工作台', description: '需求到运行闭环', icon: <LayoutDashboard size={17} /> },
   { view: 'library', label: '资产库', description: '资产治理与注入', icon: <Database size={17} /> },
+  { view: 'packs', label: '能力包', description: '资产组合与一键使用', icon: <PackageOpen size={17} /> },
   { view: 'builder', label: '构建器', description: '资产向导', icon: <Boxes size={17} /> },
   { view: 'runlab', label: '运行实验室', description: '测试与对比', icon: <Activity size={17} /> },
   { view: 'feedback', label: '反馈洞察', description: '补丁和归因', icon: <CheckCircle2 size={17} /> },

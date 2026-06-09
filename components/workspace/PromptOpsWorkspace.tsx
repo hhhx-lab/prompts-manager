@@ -98,6 +98,21 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
     getCapabilityCheck().then(setCapability).catch(() => setCapability(null));
   }, []);
 
+  useEffect(() => {
+    const raw = sessionStorage.getItem('promptmaster_workspace_pack_use_v1');
+    if (!raw) return;
+    try {
+      const handoff = JSON.parse(raw) as { packName?: string; assetIds?: string[] };
+      const assetIds = Array.isArray(handoff.assetIds) ? handoff.assetIds : [];
+      if (assetIds.length > 0) {
+        setSelectedAssetIds(previous => Array.from(new Set([...assetIds, ...previous])).slice(0, 8));
+        setNotice(`已使用能力包“${handoff.packName || '未命名能力包'}”，关联资产已加入本轮编译。`);
+      }
+    } finally {
+      sessionStorage.removeItem('promptmaster_workspace_pack_use_v1');
+    }
+  }, []);
+
   const handleAnalyze = async () => {
     setBusy('analyze');
     setNotice('');

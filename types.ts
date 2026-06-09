@@ -287,6 +287,46 @@ export interface PromptAsset {
   updatedAt: number;
 }
 
+export type CapabilityPackSlotKey =
+  | 'prompt'
+  | 'skill'
+  | 'workflow'
+  | 'reference'
+  | 'policy'
+  | 'evaluator'
+  | 'tooling'
+  | 'template'
+  | 'dataset'
+  | 'benchmark';
+
+export interface CapabilityPackSlot {
+  key: CapabilityPackSlotKey;
+  label: string;
+  acceptedTypes: AssetType[];
+  assetIds: string[];
+  role: string;
+  required: boolean;
+}
+
+export interface CapabilityPack {
+  id: string;
+  name: string;
+  summary: string;
+  scenario: string;
+  tags: string[];
+  typicalInputs: string[];
+  expectedOutputs: string[];
+  slots: CapabilityPackSlot[];
+  missingSlots: CapabilityPackSlotKey[];
+  qualityScore: number;
+  usageCount: number;
+  lastUsedAt?: number;
+  source: 'local' | 'agent' | 'import' | 'market';
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type CompileMode = 'readable' | 'strict' | 'tool-ready' | 'agent-ready' | 'eval-ready';
 
 export interface TaskModel {

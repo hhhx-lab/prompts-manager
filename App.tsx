@@ -38,6 +38,7 @@ import {
   AssetType,
   Attachment,
   BenchmarkAssetSchema,
+  CapabilityPack,
   CapabilityStatus,
   ChatMessage,
   ConnectorAssetSchema,
@@ -91,15 +92,18 @@ import { FeedbackWorkbench } from './components/feedback/FeedbackWorkbench';
 import { KnowledgeBaseView } from './components/knowledge/KnowledgeBaseView';
 import { SettingsView } from './components/settings/SettingsView';
 import { PromptOpsWorkspace } from './components/workspace/PromptOpsWorkspace';
+import { CapabilityPacksView } from './components/packs/CapabilityPacksView';
 import { Badge, Button, EmptyState, PageHeader, StatusPill } from './components/ui/DesignSystem';
 import { importAssetFromUrlRemote } from './services/apiClient';
+import { useCapabilityPacks } from './hooks/useCapabilityPacks';
+import { getPackAssetIds } from './services/capabilityPacks';
 
 type ViewMode = AppViewMode;
 
 const resolveViewFromHash = (): ViewMode => {
   if (typeof window === 'undefined') return 'workspace';
   const hash = window.location.hash.replace('#', '');
-  if (['workspace', 'library', 'builder', 'runlab', 'feedback', 'knowledge', 'settings', 'ops'].includes(hash)) return hash as ViewMode;
+  if (['workspace', 'library', 'packs', 'builder', 'runlab', 'feedback', 'knowledge', 'settings', 'ops'].includes(hash)) return hash as ViewMode;
   return 'workspace';
 };
 
@@ -116,6 +120,7 @@ const App: React.FC = () => {
   const [history, setHistory] = usePromptHistory();
 
   const { assets, setAssets, customDirections, setCustomDirections } = useAssetLibrary();
+  const { capabilityPacks, saveCapabilityPack, deleteCapabilityPack } = useCapabilityPacks();
   const allDirections = useMemo(() => [...BUILT_IN_DIRECTIONS, ...customDirections], [customDirections]);
   const [selectedDirectionIds, setSelectedDirectionIds] = useState<string[]>([]);
   const [customDirection, setCustomDirection] = useState('');
@@ -489,6 +494,44 @@ const App: React.FC = () => {
     openView('workspace');
   };
 
+  const useCapabilityPack = (pack: CapabilityPack) => {
+    const assetIds = getPackAssetIds(pack).slice(0, 8);
+    sessionStorage.setItem('promptmaster_workspace_pack_use_v1', JSON.stringify({
+      packId: pack.id,
+      packName: pack.name,
+      assetIds
+    }));
+    setAssets(prev => prev.map(asset => assetIds.includes(asset.id) ? {
+      ...asset,
+      usageCount: (asset.usageCount || 0) + 1,
+      lastUsedAt: Date.now(),
+      status: asset.status || inferAssetStatus(asset)
+    } : asset));
+    saveCapabilityPack({
+      ...pack,
+      usageCount: (pack.usageCount || 0) + 1,
+      lastUsedAt: Date.now(),
+      updatedAt: Date.now()
+    });
+    openView('workspace');
+  };
+
+  const openBuilderForPackSlot = (assetType: AssetType, pack: CapabilityPack, slot: { key: string; label: string; role: string }) => {
+    sessionStorage.setItem('promptmaster_builder_handoff_v1', JSON.stringify({
+      assetType,
+      packId: pack.id,
+      slotKey: slot.key,
+      prompt: [
+        `请为能力包“${pack.name}”构建一个 ${ASSET_TYPE_LABELS[assetType]} 资产。`,
+        `槽位：${slot.label}`,
+        `槽位职责：${slot.role}`,
+        `能力包场景：${pack.scenario}`,
+        `能力包摘要：${pack.summary}`
+      ].join('\n')
+    }));
+    openView('builder');
+  };
+
   const toggleDirection = (id: string) => {
     setSelectedDirectionIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
@@ -727,6 +770,18 @@ const App: React.FC = () => {
         );
       case 'library':
         return renderLibrary();
+      case 'packs':
+        return (
+          <CapabilityPacksView
+            assets={assets}
+            packs={capabilityPacks}
+            onSave={saveCapabilityPack}
+            onDelete={deleteCapabilityPack}
+            onUse={useCapabilityPack}
+            onImportAssets={(incomingAssets) => setAssets(previous => mergeImportedAssets(previous, incomingAssets))}
+            onOpenBuilder={openBuilderForPackSlot}
+          />
+        );
       case 'builder':
         return (
           <BuilderWorkbench

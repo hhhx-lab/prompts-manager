@@ -8,7 +8,7 @@ const rootDir = path.resolve(__dirname, '..');
 const docsDir = path.join(rootDir, 'docs');
 const dataDir = path.join(rootDir, 'data');
 const port = Number(process.env.API_PORT || process.env.PORT || 8787);
-const STATE_COLLECTIONS = ['assets', 'directions', 'taskModels', 'compilations', 'runs', 'feedbackEvents', 'assetPatches', 'assetGraph'];
+const STATE_COLLECTIONS = ['assets', 'directions', 'taskModels', 'compilations', 'runs', 'feedbackEvents', 'assetPatches', 'assetGraph', 'capabilityPacks'];
 const LOCAL_STORAGE_KEYS = [
   'promptmaster_asset_library_v1',
   'promptmaster_directions_v1',
