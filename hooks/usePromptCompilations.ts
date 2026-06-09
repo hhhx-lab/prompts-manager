@@ -1,9 +1,9 @@
 import { PromptCompilation } from '../types';
 import { PROMPT_COMPILATIONS_STORAGE_KEY } from '../services/storage';
-import { usePersistentState } from './usePersistentState';
+import { useBackendState } from './useBackendState';
 
 export const usePromptCompilations = () => {
-  const [promptCompilations, setPromptCompilations] = usePersistentState<PromptCompilation[]>(PROMPT_COMPILATIONS_STORAGE_KEY, []);
+  const [promptCompilations, setPromptCompilations] = useBackendState<PromptCompilation[]>(PROMPT_COMPILATIONS_STORAGE_KEY, 'compilations', []);
 
   const savePromptCompilation = (compilation: PromptCompilation) => {
     setPromptCompilations(prev => [compilation, ...prev.filter(item => item.id !== compilation.id)].slice(0, 100));

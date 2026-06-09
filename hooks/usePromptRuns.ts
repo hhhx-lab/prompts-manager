@@ -1,9 +1,9 @@
 import { PromptRun } from '../types';
 import { PROMPT_RUNS_STORAGE_KEY } from '../services/storage';
-import { usePersistentState } from './usePersistentState';
+import { useBackendState } from './useBackendState';
 
 export const usePromptRuns = () => {
-  const [promptRuns, setPromptRuns] = usePersistentState<PromptRun[]>(PROMPT_RUNS_STORAGE_KEY, []);
+  const [promptRuns, setPromptRuns] = useBackendState<PromptRun[]>(PROMPT_RUNS_STORAGE_KEY, 'runs', []);
 
   const savePromptRun = (run: PromptRun) => {
     setPromptRuns(prev => [run, ...prev.filter(item => item.id !== run.id)].slice(0, 100));

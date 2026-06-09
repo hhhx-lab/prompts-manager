@@ -1,9 +1,11 @@
 import {
   AssetPatch,
+  AssetPatchApplyResult,
   AssetBuilderDraft,
   AssetType,
   ArchitectureManifest,
   BackendHealth,
+  CapabilityCheck,
   CompileMode,
   DocsIndexItem,
   FeedbackEvent,
@@ -11,6 +13,7 @@ import {
   OptimizationDirection,
   PromptAsset,
   PromptCompilation,
+  RunLabRunResult,
   RunLabComparison,
   TaskModel
 } from '../types';
@@ -20,6 +23,7 @@ const API_BASE_URL = ((import.meta as any).env?.VITE_API_BASE_URL || 'http://127
 export const getBackendHealth = () => request<BackendHealth>('/api/health');
 export const getDocsIndex = () => request<DocsIndexItem[]>('/api/docs/index');
 export const getArchitectureManifest = () => request<ArchitectureManifest>('/api/architecture');
+export const getCapabilityCheck = () => request<CapabilityCheck>('/api/capabilities/check');
 
 export const analyzeTaskRemote = (payload: {
   input: string;
@@ -57,6 +61,22 @@ export const getFeedbackInsightsRemote = (payload: {
   events: FeedbackEvent[];
   patches: AssetPatch[];
 }) => request<FeedbackInsights>('/api/feedback/insights', { method: 'POST', body: payload });
+
+export const runPromptRemote = (payload: {
+  compilation: PromptCompilation;
+  input: string;
+  model?: string;
+}) => request<RunLabRunResult>('/api/run-lab/run', { method: 'POST', body: payload });
+
+export const applyAssetPatchRemote = (payload: {
+  patch: AssetPatch;
+  assets: PromptAsset[];
+}) => request<AssetPatchApplyResult>('/api/assets/apply-patch', { method: 'POST', body: payload });
+
+export const getStateCollectionRemote = <T,>(collection: string) => request<T | null>(`/api/state/${collection}`);
+
+export const putStateCollectionRemote = <T,>(collection: string, value: T) =>
+  request<{ ok: boolean; collection: string; updatedAt: number }>(`/api/state/${collection}`, { method: 'PUT', body: value });
 
 const request = async <T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> => {
   const response = await fetch(`${API_BASE_URL}${path}`, {

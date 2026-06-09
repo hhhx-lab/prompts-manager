@@ -38,6 +38,7 @@ import {
   AssetType,
   Attachment,
   BenchmarkAssetSchema,
+  CapabilityStatus,
   ChatMessage,
   ConnectorAssetSchema,
   DatasetAssetSchema,
@@ -71,6 +72,7 @@ import {
   applyAssetFormatTemplate,
   createAssetDraftFromText,
   createBlankAsset,
+  defaultCapabilityStatusForType,
   getAssetSchemaFieldFormat,
   listToText,
   mergeImportedAssets,
@@ -88,6 +90,8 @@ import { RunLabWorkbench } from './components/run-lab/RunLabWorkbench';
 import { FeedbackWorkbench } from './components/feedback/FeedbackWorkbench';
 import { KnowledgeBaseView } from './components/knowledge/KnowledgeBaseView';
 import { SettingsView } from './components/settings/SettingsView';
+import { PromptOpsWorkspace } from './components/workspace/PromptOpsWorkspace';
+import { Badge, Button, EmptyState, PageHeader, StatusPill } from './components/ui/DesignSystem';
 
 type ViewMode = AppViewMode;
 
@@ -141,6 +145,8 @@ const App: React.FC = () => {
 
   const [librarySearch, setLibrarySearch] = useState('');
   const [libraryType, setLibraryType] = useState<AssetType | 'all'>('all');
+  const [libraryStatus, setLibraryStatus] = useState<CapabilityStatus | 'all'>('all');
+  const [libraryView, setLibraryView] = useState<'table' | 'cards'>('table');
   const [assetDraft, setAssetDraft] = useState<PromptAsset | null>(null);
   const [libraryNotice, setLibraryNotice] = useState('');
 
@@ -172,6 +178,7 @@ const App: React.FC = () => {
     const query = librarySearch.trim().toLowerCase();
     return assets
       .filter(asset => libraryType === 'all' || asset.type === libraryType)
+      .filter(asset => libraryStatus === 'all' || (asset.status || inferAssetStatus(asset)) === libraryStatus)
       .filter(asset => {
         if (!query) return true;
         return [
@@ -185,7 +192,7 @@ const App: React.FC = () => {
         ].join(' ').toLowerCase().includes(query);
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [assets, librarySearch, libraryType]);
+  }, [assets, librarySearch, libraryStatus, libraryType]);
 
   useEffect(() => {
     if (currentVersion) {
@@ -448,6 +455,12 @@ const App: React.FC = () => {
       if (prev.includes(id) || prev.length >= 8) return prev;
       return [...prev, id];
     });
+    setAssets(prev => prev.map(asset => asset.id === id ? {
+      ...asset,
+      usageCount: (asset.usageCount || 0) + 1,
+      lastUsedAt: Date.now(),
+      status: asset.status || inferAssetStatus(asset)
+    } : asset));
     openView('workspace');
   };
 
@@ -477,6 +490,7 @@ const App: React.FC = () => {
     if (!assetDraft) return;
     setAssetDraft(applyAssetFormatTemplate({
       ...assetDraft,
+      status: defaultCapabilityStatusForType(type),
       content: '',
       examples: [],
       schema: undefined
@@ -676,7 +690,16 @@ const App: React.FC = () => {
   function renderActiveView() {
     switch (activeView) {
       case 'workspace':
-        return renderWorkspace();
+        return (
+          <PromptOpsWorkspace
+            assets={assets}
+            directions={allDirections}
+            scenario={scenario}
+            setAssets={setAssets}
+            onOpenLibrary={() => openView('library')}
+            onOpenBuilder={() => openView('builder')}
+          />
+        );
       case 'library':
         return renderLibrary();
       case 'builder':
@@ -694,7 +717,7 @@ const App: React.FC = () => {
       case 'runlab':
         return <RunLabWorkbench assets={assets} directions={allDirections} scenario={scenario} />;
       case 'feedback':
-        return <FeedbackWorkbench assets={assets} directions={allDirections} scenario={scenario} />;
+        return <FeedbackWorkbench assets={assets} directions={allDirections} scenario={scenario} setAssets={setAssets} />;
       case 'knowledge':
         return <KnowledgeBaseView />;
       case 'settings':
@@ -951,55 +974,112 @@ const App: React.FC = () => {
 
   function renderLibrary() {
     return (
-      <div className="h-full overflow-y-auto custom-scrollbar bg-slate-900/20">
-        <div className="max-w-7xl mx-auto p-6 lg:p-8 space-y-6">
-          <section className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold flex items-center gap-3"><BookOpen className="text-cyan-300" /> 提示词工程项目库</h2>
-              <p className="text-sm text-slate-500 mt-1">沉淀 Prompt、Skill、MCP、SDK、Workflow 和 Reference，优化时作为半结构化上下文注入。</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
+      <div className="h-full overflow-y-auto custom-scrollbar bg-zinc-950">
+        <PageHeader
+          eyebrow="Asset Library"
+          title="资产库"
+          description="以能力状态、质量和使用记录管理 Prompt、Skill、MCP、SDK、Workflow 等可注入资产。"
+          actions={
+            <>
               <input id="asset-import" type="file" className="hidden" multiple onChange={handleAssetFileImport} accept=".md,.markdown,.txt,.json,.docx,.xls,.xlsx,.csv,text/plain,text/markdown,application/json" />
-              <label htmlFor="asset-import" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-bold cursor-pointer"><Upload size={16} /> 导入文件/JSON</label>
-              <button onClick={handleExportLibrary} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-bold"><Download size={16} /> 导出 JSON</button>
-              <button onClick={() => setAssetDraft(createBlankAsset('prompt'))} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-sm font-bold"><Plus size={16} /> 新建资产</button>
-            </div>
-          </section>
+              <label htmlFor="asset-import" className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"><Upload size={16} /> 导入</label>
+              <Button onClick={handleExportLibrary} icon={<Download size={16} />}>导出</Button>
+              <Button variant="primary" onClick={() => setAssetDraft(createBlankAsset('prompt'))} icon={<Plus size={16} />}>新建资产</Button>
+            </>
+          }
+        />
 
+        <div className="max-w-7xl mx-auto p-4 lg:p-5 space-y-4">
           {libraryNotice && (
-            <div className="flex items-center justify-between bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 rounded-lg px-4 py-3 text-sm">
+            <div className="flex items-center justify-between rounded-md border border-teal-900/60 bg-teal-950/30 px-4 py-3 text-sm text-teal-100">
               <span>{libraryNotice}</span>
               <button onClick={() => setLibraryNotice('')}><X size={16} /></button>
             </div>
           )}
 
-          <section className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-6">
+          <section className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-4">
             <LibraryFilterSidebar
               directions={allDirections}
               librarySearch={librarySearch}
               libraryType={libraryType}
+              libraryStatus={libraryStatus}
               onSearchChange={setLibrarySearch}
               onTypeChange={setLibraryType}
+              onStatusChange={setLibraryStatus}
             />
 
-            <section className="grid grid-cols-1 xl:grid-cols-2 gap-4 content-start">
-              {filteredAssets.length === 0 ? (
-                <div className="xl:col-span-2 bg-slate-950 border border-slate-800 rounded-xl p-10 text-center">
-                  <PackageOpen className="mx-auto text-slate-600 mb-4" size={42} />
-                  <div className="text-lg font-bold text-slate-300">项目库还是空的</div>
-                  <p className="text-sm text-slate-500 mt-2">新建资产，或导入 Markdown、Word、Excel、JSON 生成资产草稿。</p>
+            <section className="space-y-3 min-w-0">
+              <div className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="neutral">{filteredAssets.length} / {assets.length} 资产</Badge>
+                  <Badge tone="muted">后端优先 state</Badge>
+                  <Badge tone="accent">能力状态分级</Badge>
                 </div>
-              ) : filteredAssets.map(asset => (
-                <AssetLibraryCard
-                  key={asset.id}
-                  asset={asset}
-                  onEdit={setAssetDraft}
-                  onDelete={deleteAsset}
-                  onInject={injectAssetToWorkspace}
-                />
-              ))}
+                <div className="flex rounded-md border border-zinc-800 bg-zinc-900 p-1">
+                  <button onClick={() => setLibraryView('table')} className={`rounded px-3 py-1.5 text-xs font-semibold ${libraryView === 'table' ? 'bg-zinc-700 text-zinc-50' : 'text-zinc-500 hover:text-zinc-200'}`}>表格</button>
+                  <button onClick={() => setLibraryView('cards')} className={`rounded px-3 py-1.5 text-xs font-semibold ${libraryView === 'cards' ? 'bg-zinc-700 text-zinc-50' : 'text-zinc-500 hover:text-zinc-200'}`}>卡片</button>
+                </div>
+              </div>
+              {filteredAssets.length === 0 ? (
+                <EmptyState title="没有匹配资产" description="调整类型、能力状态或搜索词，或新建一个资产。" action={<Button variant="primary" onClick={() => setAssetDraft(createBlankAsset('prompt'))}>新建资产</Button>} />
+              ) : libraryView === 'table' ? renderAssetTable(filteredAssets) : (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 content-start">
+                  {filteredAssets.map(asset => (
+                    <AssetLibraryCard
+                      key={asset.id}
+                      asset={asset}
+                      onEdit={setAssetDraft}
+                      onDelete={deleteAsset}
+                      onInject={injectAssetToWorkspace}
+                    />
+                  ))}
+                </div>
+              )}
             </section>
           </section>
+        </div>
+      </div>
+    );
+  }
+
+  function renderAssetTable(items: PromptAsset[]) {
+    return (
+      <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-zinc-900 bg-zinc-950 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+              <tr>
+                <th className="px-4 py-3 font-bold">资产</th>
+                <th className="px-4 py-3 font-bold">类型</th>
+                <th className="px-4 py-3 font-bold">状态</th>
+                <th className="px-4 py-3 font-bold">质量</th>
+                <th className="px-4 py-3 font-bold">使用</th>
+                <th className="px-4 py-3 font-bold">更新</th>
+                <th className="px-4 py-3 text-right font-bold">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-900">
+              {items.map(asset => (
+                <tr key={asset.id} className="hover:bg-zinc-900/50">
+                  <td className="max-w-[360px] px-4 py-3">
+                    <div className="truncate font-semibold text-zinc-100">{asset.title || '未命名资产'}</div>
+                    <div className="mt-1 line-clamp-1 text-xs text-zinc-500">{asset.summary || asset.integration.usageNotes || '暂无摘要'}</div>
+                  </td>
+                  <td className="px-4 py-3"><Badge tone="neutral">{ASSET_TYPE_LABELS[asset.type]}</Badge></td>
+                  <td className="px-4 py-3"><StatusPill status={asset.status || inferAssetStatus(asset)} /></td>
+                  <td className="px-4 py-3 text-zinc-400">{asset.qualityScore || estimateAssetQuality(asset)}%</td>
+                  <td className="px-4 py-3 text-zinc-400">{asset.usageCount || 0}</td>
+                  <td className="px-4 py-3 text-xs text-zinc-500">{new Date(asset.updatedAt).toLocaleDateString()}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
+                      <Button className="px-2 py-1 text-xs" onClick={() => injectAssetToWorkspace(asset.id)}>注入</Button>
+                      <Button className="px-2 py-1 text-xs" onClick={() => setAssetDraft(asset)}>编辑</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     );
@@ -1008,70 +1088,120 @@ const App: React.FC = () => {
   function renderAssetEditor() {
     if (!assetDraft) return null;
     const format = ASSET_TYPE_FORMATS[assetDraft.type];
+    const draftStatus = assetDraft.status || inferAssetStatus(assetDraft);
+    const draftQuality = estimateAssetQuality(assetDraft);
+    const completeness = getAssetCompleteness(assetDraft);
+    const statusOptions: CapabilityStatus[] = ['context_only', 'schema_ready', 'testable', 'connected', 'executable'];
     return (
       <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setAssetDraft(null)} />
-        <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto custom-scrollbar bg-slate-950 border border-slate-800 rounded-xl shadow-2xl">
-          <div className="sticky top-0 bg-slate-950 border-b border-slate-800 p-5 flex items-center justify-between z-10">
-            <div>
-              <h3 className="text-lg font-bold">资产编辑器</h3>
-              <p className="text-xs text-slate-500 mt-1">{format.name} · {format.description}</p>
-            </div>
-            <button onClick={() => setAssetDraft(null)} className="p-2 rounded-lg hover:bg-slate-900 text-slate-400"><X size={20} /></button>
-          </div>
-          <div className="p-6 space-y-5">
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_260px] gap-4">
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-                <div className="text-xs font-bold text-cyan-300 uppercase tracking-wider">{format.name} 格式</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {format.formatBullets.map(item => (
-                    <div key={item} className="text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">{item}</div>
-                  ))}
+        <div className="absolute inset-0 bg-zinc-950/82 backdrop-blur-md" onClick={() => setAssetDraft(null)} />
+        <div className="relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 shadow-2xl">
+          <div className="border-b border-zinc-900 px-5 py-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="accent">{ASSET_TYPE_LABELS[assetDraft.type]}</Badge>
+                  <StatusPill status={draftStatus} />
+                  <Badge tone="neutral">v{assetDraft.version || 1}</Badge>
                 </div>
+                <h3 className="mt-3 text-lg font-semibold text-zinc-50">资产编辑器</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-relaxed text-zinc-500">{format.name} · {format.description}</p>
               </div>
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">模板操作</div>
-                <button onClick={() => applyCurrentAssetTemplate(false)} className="w-full px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 text-xs font-bold hover:bg-cyan-500/20">补齐空字段</button>
-                <button onClick={() => applyCurrentAssetTemplate(true)} className="w-full px-3 py-2 rounded-lg bg-amber-400/10 border border-amber-300/30 text-amber-200 text-xs font-bold hover:bg-amber-400/20">重置为该类型模板</button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button variant="ghost" onClick={() => applyCurrentAssetTemplate(false)}>补齐空字段</Button>
+                <Button variant="ghost" onClick={() => applyCurrentAssetTemplate(true)}>重置模板</Button>
+                <button onClick={() => setAssetDraft(null)} className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-900 hover:text-zinc-100"><X size={18} /></button>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <Field label="类型">
-              <select value={assetDraft.type} onChange={(e) => updateAssetDraftType(e.target.value as AssetType)} className="field-input">
-                {(Object.keys(ASSET_TYPE_LABELS) as AssetType[]).map(type => <option key={type} value={type}>{ASSET_TYPE_LABELS[type]}</option>)}
-              </select>
-            </Field>
-            <Field label="标题">
-              <input value={assetDraft.title} onChange={(e) => setAssetDraft({ ...assetDraft, title: e.target.value })} className="field-input" placeholder={format.titlePlaceholder} />
-            </Field>
-            <Field label="摘要">
-              <textarea value={assetDraft.summary} onChange={(e) => setAssetDraft({ ...assetDraft, summary: e.target.value })} className="field-input min-h-[78px]" placeholder={format.summaryPlaceholder} />
-            </Field>
-            <Field label="标签">
-              <input value={listToText(assetDraft.tags)} onChange={(e) => setAssetDraft({ ...assetDraft, tags: parseList(e.target.value) })} className="field-input" placeholder={format.tagsPlaceholder} />
-            </Field>
-            <Field label={format.useCasesLabel}>
-              <textarea value={assetDraft.useCases.join('\n')} onChange={(e) => setAssetDraft({ ...assetDraft, useCases: parseList(e.target.value) })} className="field-input min-h-[88px]" placeholder={format.useCasesPlaceholder} />
-            </Field>
-            <div className="lg:col-span-2">
-              {renderAssetArchitecture(assetDraft)}
-            </div>
-            <div className="lg:col-span-2">
-              <Field label={format.examplesLabel}>
-                <textarea value={assetDraft.examples.join('\n---\n')} onChange={(e) => setAssetDraft({ ...assetDraft, examples: e.target.value.split(/\n---\n/).map(item => item.trim()).filter(Boolean) })} className="field-input min-h-[96px]" placeholder={format.examplesPlaceholder} />
-              </Field>
-            </div>
-            <div className="lg:col-span-2">
-              <Field label={format.contentLabel}>
-                <textarea value={assetDraft.content} onChange={(e) => setAssetDraft({ ...assetDraft, content: e.target.value })} className="field-input min-h-[180px] font-mono" placeholder={format.contentPlaceholder} />
-              </Field>
-            </div>
             </div>
           </div>
-          <div className="sticky bottom-0 bg-slate-950 border-t border-slate-800 p-5 flex justify-end gap-3">
-            <button onClick={() => setAssetDraft(null)} className="px-5 py-2 rounded-lg text-slate-400 hover:text-white font-bold">取消</button>
-            <button onClick={saveAssetDraft} className="px-6 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold flex items-center gap-2"><Save size={16} /> 保存资产</button>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-5">
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <Field label="类型">
+                    <select value={assetDraft.type} onChange={(e) => updateAssetDraftType(e.target.value as AssetType)} className="field-input">
+                      {(Object.keys(ASSET_TYPE_LABELS) as AssetType[]).map(type => <option key={type} value={type}>{ASSET_TYPE_LABELS[type]}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="标题">
+                    <input value={assetDraft.title} onChange={(e) => setAssetDraft({ ...assetDraft, title: e.target.value })} className="field-input" placeholder={format.titlePlaceholder} />
+                  </Field>
+                  <Field label="摘要">
+                    <textarea value={assetDraft.summary} onChange={(e) => setAssetDraft({ ...assetDraft, summary: e.target.value })} className="field-input min-h-[78px]" placeholder={format.summaryPlaceholder} />
+                  </Field>
+                  <Field label="标签">
+                    <input value={listToText(assetDraft.tags)} onChange={(e) => setAssetDraft({ ...assetDraft, tags: parseList(e.target.value) })} className="field-input" placeholder={format.tagsPlaceholder} />
+                  </Field>
+                  <Field label={format.useCasesLabel}>
+                    <textarea value={assetDraft.useCases.join('\n')} onChange={(e) => setAssetDraft({ ...assetDraft, useCases: parseList(e.target.value) })} className="field-input min-h-[88px]" placeholder={format.useCasesPlaceholder} />
+                  </Field>
+                  <Field label="能力状态">
+                    <select value={draftStatus} onChange={(e) => setAssetDraft({ ...assetDraft, status: e.target.value as CapabilityStatus })} className="field-input">
+                      {statusOptions.map(status => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </Field>
+                </div>
+
+                {renderAssetArchitecture(assetDraft)}
+
+                <Field label={format.examplesLabel}>
+                  <textarea value={assetDraft.examples.join('\n---\n')} onChange={(e) => setAssetDraft({ ...assetDraft, examples: e.target.value.split(/\n---\n/).map(item => item.trim()).filter(Boolean) })} className="field-input min-h-[96px]" placeholder={format.examplesPlaceholder} />
+                </Field>
+                <Field label={format.contentLabel}>
+                  <textarea value={assetDraft.content} onChange={(e) => setAssetDraft({ ...assetDraft, content: e.target.value })} className="field-input min-h-[200px] font-mono" placeholder={format.contentPlaceholder} />
+                </Field>
+              </div>
+
+              <aside className="space-y-4">
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">保存前检查</div>
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-xs text-zinc-500">
+                        <span>完整度</span>
+                        <span>{completeness}%</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-zinc-900">
+                        <div className="h-full rounded-full bg-teal-500" style={{ width: `${completeness}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-xs text-zinc-500">
+                        <span>质量估算</span>
+                        <span>{draftQuality}%</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-zinc-900">
+                        <div className="h-full rounded-full bg-zinc-300" style={{ width: `${draftQuality}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                    <InfoMini label="能力" value={`${assetDraft.integration.capabilities.length}`} />
+                    <InfoMini label="示例" value={`${assetDraft.examples.length}`} />
+                    <InfoMini label="用例" value={`${assetDraft.useCases.length}`} />
+                    <InfoMini label="使用" value={`${assetDraft.usageCount || 0}`} />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">{format.name} 规格</div>
+                  <div className="mt-3 space-y-2">
+                    {format.formatBullets.map(item => (
+                      <div key={item} className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs leading-relaxed text-zinc-400">{item}</div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-amber-900/50 bg-amber-950/15 p-4 text-xs leading-relaxed text-amber-100/80">
+                  MCP、SDK、Tool、Connector 默认只作为工程上下文参与编译。只有状态达到可执行，并由用户显式确认时，后续版本才允许真实调用。
+                </div>
+              </aside>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-zinc-900 px-5 py-4">
+            <Button variant="ghost" onClick={() => setAssetDraft(null)}>取消</Button>
+            <Button variant="primary" onClick={saveAssetDraft} icon={<Save size={16} />}>保存资产</Button>
           </div>
         </div>
       </div>
@@ -1204,11 +1334,11 @@ const App: React.FC = () => {
           </Field>
           <div className="lg:col-span-2 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tools</div>
-              <button onClick={() => update({ tools: [...schema.tools, { name: '', description: '', inputSchema: '', outputSchema: '', annotations: [] }] })} className="px-3 py-1.5 rounded-lg bg-slate-800 text-xs font-bold text-cyan-200">添加 Tool</button>
+              <div className="text-xs font-semibold text-zinc-500">Tools</div>
+              <button onClick={() => update({ tools: [...schema.tools, { name: '', description: '', inputSchema: '', outputSchema: '', annotations: [] }] })} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-800">添加 Tool</button>
             </div>
             {schema.tools.map((tool, index) => (
-              <div key={index} className="grid grid-cols-1 lg:grid-cols-2 gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4">
+              <div key={index} className="grid grid-cols-1 gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-4 lg:grid-cols-2">
                 <Field label="Tool 名称"><input value={tool.name} onChange={(e) => updateTool(index, { name: e.target.value })} className="field-input" placeholder="github_list_pull_requests" /></Field>
                 <Field label="描述"><input value={tool.description} onChange={(e) => updateTool(index, { description: e.target.value })} className="field-input" placeholder="这个工具完成什么任务" /></Field>
                 <Field label="Input Schema"><textarea value={tool.inputSchema} onChange={(e) => updateTool(index, { inputSchema: e.target.value })} className="field-input min-h-[80px] font-mono" placeholder="{ owner, repo, pullNumber }" /></Field>
@@ -1246,11 +1376,11 @@ const App: React.FC = () => {
           <Field label="认证"><textarea value={schema.auth} onChange={(e) => update({ auth: e.target.value })} className="field-input min-h-[90px]" placeholder="API key / OAuth / 环境变量 / 权限边界" /></Field>
           <div className="lg:col-span-2 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">核心方法</div>
-              <button onClick={() => update({ coreMethods: [...schema.coreMethods, { name: '', purpose: '', parameters: [], returns: [], errors: [] }] })} className="px-3 py-1.5 rounded-lg bg-slate-800 text-xs font-bold text-cyan-200">添加方法</button>
+              <div className="text-xs font-semibold text-zinc-500">核心方法</div>
+              <button onClick={() => update({ coreMethods: [...schema.coreMethods, { name: '', purpose: '', parameters: [], returns: [], errors: [] }] })} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-800">添加方法</button>
             </div>
             {schema.coreMethods.map((method, index) => (
-              <div key={index} className="grid grid-cols-1 lg:grid-cols-2 gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4">
+              <div key={index} className="grid grid-cols-1 gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-4 lg:grid-cols-2">
                 <Field label="方法名"><input value={method.name} onChange={(e) => updateMethod(index, { name: e.target.value })} className="field-input" placeholder="client.responses.create" /></Field>
                 <Field label="用途"><input value={method.purpose} onChange={(e) => updateMethod(index, { purpose: e.target.value })} className="field-input" placeholder="生成结构化输出" /></Field>
                 {renderListEditor('参数', method.parameters, value => updateMethod(index, { parameters: value }), 'model: string\ninput: string')}
@@ -1283,11 +1413,11 @@ const App: React.FC = () => {
           {renderListEditor('输入', schema.inputs, value => update({ inputs: value }), 'sourceFiles\nrequirements\nconfig')}
           <div className="lg:col-span-2 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">阶段 / 节点</div>
-              <button onClick={() => update({ stages: [...schema.stages, { name: '', objective: '', actions: [], outputs: [], qualityGate: [] }] })} className="px-3 py-1.5 rounded-lg bg-slate-800 text-xs font-bold text-cyan-200">添加阶段</button>
+              <div className="text-xs font-semibold text-zinc-500">阶段 / 节点</div>
+              <button onClick={() => update({ stages: [...schema.stages, { name: '', objective: '', actions: [], outputs: [], qualityGate: [] }] })} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-800">添加阶段</button>
             </div>
             {schema.stages.map((stage, index) => (
-              <div key={index} className="grid grid-cols-1 lg:grid-cols-2 gap-3 bg-slate-900 border border-slate-800 rounded-xl p-4">
+              <div key={index} className="grid grid-cols-1 gap-3 rounded-lg border border-zinc-800 bg-zinc-950 p-4 lg:grid-cols-2">
                 <Field label="阶段名"><input value={stage.name} onChange={(e) => updateStage(index, { name: e.target.value })} className="field-input" placeholder="parse_materials" /></Field>
                 <Field label="阶段目标"><input value={stage.objective} onChange={(e) => updateStage(index, { objective: e.target.value })} className="field-input" placeholder="解析并标准化输入资料" /></Field>
                 {renderListEditor('动作', stage.actions, value => updateStage(index, { actions: value }), '读取文件\n抽取表格\n生成结构化数据')}
@@ -1541,28 +1671,28 @@ const App: React.FC = () => {
 
   function renderChat() {
     return (
-      <div className={`fixed bottom-6 right-6 z-50 transition-all duration-300 ${isChatOpen ? 'w-96 h-[500px]' : 'w-16 h-16'}`}>
+      <div className={`fixed bottom-5 right-5 z-50 transition-all duration-300 ${isChatOpen ? 'h-[500px] w-[380px] max-w-[calc(100vw-2rem)]' : 'h-11 w-11'}`}>
         {isChatOpen ? (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden h-full">
-            <div className="bg-cyan-500 p-4 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-slate-950 font-bold"><MessageSquare size={20} />需求协助</div>
-              <button onClick={() => setIsChatOpen(false)} className="text-slate-950/80"><X size={20} /></button>
+          <div className="flex h-full flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-900 p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-zinc-100"><MessageSquare size={18} className="text-teal-300" />需求协助</div>
+              <button onClick={() => setIsChatOpen(false)} className="text-zinc-500 hover:text-zinc-100"><X size={18} /></button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-950 custom-scrollbar">
+            <div className="flex-1 space-y-4 overflow-y-auto bg-zinc-950 p-4 custom-scrollbar">
               {chatHistory.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] rounded-xl px-4 py-2 text-sm ${msg.role === 'user' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>{msg.text}</div>
+                  <div className={`max-w-[80%] rounded-lg border px-4 py-2 text-sm ${msg.role === 'user' ? 'border-teal-800 bg-teal-950/50 text-teal-50' : 'border-zinc-800 bg-zinc-900 text-zinc-200'}`}>{msg.text}</div>
                 </div>
               ))}
               <div ref={chatEndRef} />
             </div>
-            <div className="p-4 bg-slate-900 border-t border-slate-800 flex gap-2">
-              <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendChat()} className="flex-1 bg-slate-800 border-none rounded-lg px-4 py-2 text-sm outline-none" placeholder="提问..." />
-              <button onClick={handleSendChat} className="p-2 text-cyan-300"><Send size={20} /></button>
+            <div className="flex gap-2 border-t border-zinc-900 bg-zinc-950 p-4">
+              <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendChat()} className="min-w-0 flex-1 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-teal-600" placeholder="提问..." />
+              <button onClick={handleSendChat} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-teal-300 hover:bg-zinc-800"><Send size={18} /></button>
             </div>
           </div>
         ) : (
-          <button onClick={() => setIsChatOpen(true)} className="w-16 h-16 bg-cyan-500 rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-all"><MessageSquare className="text-slate-950" /></button>
+          <button onClick={() => setIsChatOpen(true)} className="flex h-11 w-11 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-teal-300 shadow-lg transition-colors hover:bg-zinc-800"><MessageSquare size={19} /></button>
         )}
       </div>
     );
@@ -1612,16 +1742,60 @@ const FileBadge = ({ icon, label, color }: { icon: React.ReactNode; label: strin
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <label className="block space-y-2">
-    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</span>
+    <span className="text-xs font-semibold text-zinc-400">{label}</span>
     {children}
   </label>
 );
 
+const InfoMini = ({ label, value }: { label: string; value: string }) => (
+  <div className="rounded-md border border-zinc-800 bg-zinc-950 p-2">
+    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-600">{label}</div>
+    <div className="mt-1 text-sm font-semibold text-zinc-100">{value}</div>
+  </div>
+);
+
+const inferAssetStatus = (asset: PromptAsset): CapabilityStatus => {
+  if (asset.status) return asset.status;
+  if (['mcp', 'sdk', 'tool', 'connector'].includes(asset.type)) return asset.schema ? 'schema_ready' : 'context_only';
+  if (asset.schema && asset.integration.capabilities.length > 0) return 'schema_ready';
+  return 'context_only';
+};
+
+const estimateAssetQuality = (asset: PromptAsset): number => {
+  if (typeof asset.qualityScore === 'number') return asset.qualityScore;
+  let score = 45;
+  if (asset.title.trim()) score += 8;
+  if (asset.summary.trim()) score += 8;
+  if (asset.content.trim().length > 120) score += 12;
+  if (asset.schema) score += 10;
+  if (asset.examples.length > 0) score += 6;
+  if (asset.integration.capabilities.length > 0) score += 6;
+  return Math.min(96, score);
+};
+
+const getAssetCompleteness = (asset: PromptAsset): number => {
+  const checks = [
+    asset.title.trim(),
+    asset.summary.trim(),
+    asset.content.trim(),
+    asset.tags.length > 0,
+    asset.useCases.length > 0,
+    asset.examples.length > 0,
+    asset.integration.entryName.trim(),
+    asset.integration.capabilities.length > 0,
+    asset.integration.inputs.length > 0,
+    asset.integration.outputs.length > 0,
+    asset.integration.constraints.length > 0,
+    asset.schema
+  ];
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+};
+
 const ArchitectureBox = ({ title, description, children }: { title: string; description: string; children: React.ReactNode }) => (
-  <section className="bg-slate-950 border border-cyan-500/20 rounded-xl p-5 space-y-4">
+  <section className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-950/70 p-4">
     <div>
-      <h4 className="text-sm font-bold text-cyan-200">{title}</h4>
-      <p className="text-xs text-slate-500 mt-1 leading-relaxed">{description}</p>
+      <h4 className="text-sm font-semibold text-zinc-100">{title}</h4>
+      <p className="mt-1 text-xs leading-relaxed text-zinc-500">{description}</p>
     </div>
     {children}
   </section>
