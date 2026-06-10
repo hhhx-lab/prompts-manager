@@ -4,11 +4,14 @@
 
 ## 核心能力
 
-- 工作台：输入原始需求，选择场景、风格、优化方向和项目库资产，生成更可执行的提示词。
+- 工作台：输入原始提示词，选择场景、风格、优化方向和项目库资产，生成更可执行的提示词。
 - 资产库：管理可复用资产，支持搜索筛选、新建、编辑、删除、JSON 导入导出。
-- 构建器：从任务描述生成 Prompt、Skill、MCP、SDK、Agent、Workflow、Evaluator、Policy 等 16 类资产草稿，并保存到项目库。
-- 运行实验室：对比无资产基线和资产注入版本，检查 PromptIR、编译模式、差异和风险提示。
+- 构建器：从任务描述、上传资料或多轮 Agent 对话生成 Prompt、Skill、MCP、SDK、Agent、Workflow、Evaluator、Policy 等 16 类资产草稿；Agent 会自动回填标题、摘要、正文、注入规格、缺失字段和下一步动作，用户只需轻量修改后保存。
+- 运行实验室：对比无资产基线和资产注入版本，检查 PromptIR、编译模式、差异和风险提示；配置模型网关后支持真实运行、Evaluator 自动评分和多模型实验。
 - 反馈洞察：把用户编辑、追问、重新生成、补资料等行为转成 FeedbackEvent，并生成 AssetPatch 迭代建议。
+- 工具执行台：设置页提供 MCP/SDK/Tool/Connector adapter 测试台，当前支持 `tool.ripgrep`、`tool.http_get`、`tool.json_extract`、`sdk.openai.chat`、`mcp.stdio.call`。真实执行需要 `.env.local` 开启门控、资产为 `executable`、adapter 在白名单内并由用户确认。
+- 市场与团队契约：后端已提供远程市场发布/安装、订单占位、团队空间、审批请求、线上实验创建和事件追踪的本地 JSON state 接口；真实跨用户账号、云端审核、支付结算和线上流量分配仍需接入外部服务。
+- 协作治理：一级页面承载团队空间、审批请求和工具执行门控；市场页显示远程市场队列并支持下载安装；运行实验室可从资产对比创建线上实验契约并记录人工胜出事件。
 - 知识库：通过本地后端索引 `docs/`，浏览产品方案、提示词工程知识和资产包规格。
 - 资产注入：根据原始需求、场景、风格和优化方向推荐资产，用户确认后注入模型上下文。
 - 2.0 总控台：保留 `#ops` 调试入口，将需求解析为 TaskModel，插入资产槽位，编译 PromptIR，并输出可追溯的工程化 Prompt。
@@ -23,7 +26,7 @@
 
 `prompt`、`skill`、`mcp`、`sdk`、`workflow`、`reference`、`agent`、`tool`、`template`、`evaluator`、`dataset`、`policy`、`memory`、`connector`、`parser`、`benchmark`
 
-每类资产都有对应的结构化 schema，用于描述能力边界、输入输出、约束、示例和使用方式。MCP、SDK、Connector、Tool 等资产在 v1 中只作为“可引用工程上下文”，不会在优化阶段被真实调用。
+每类资产都有对应的结构化 schema，用于描述能力边界、输入输出、约束、示例和使用方式。MCP、SDK、Connector、Tool 等资产默认只作为“可引用工程上下文”；只有显式开启执行门控、资产达到 `executable`、绑定 adapter 并由用户确认后，才允许进入真实执行流程。
 
 ## 默认资产包
 
@@ -39,7 +42,7 @@
 
 ## 本地存储
 
-项目当前不依赖后端数据库，数据保存在浏览器 `localStorage`：
+项目当前不依赖云数据库，优先使用本地 Node API 的 JSON state；浏览器 `localStorage` 作为兼容缓存和离线兜底：
 
 - `promptmaster_history_v2`：提示词优化历史。
 - `promptmaster_asset_library_v1`：项目库资产。
@@ -51,6 +54,16 @@
 - `promptmaster_feedback_events_v1`：用户行为反馈事件。
 - `promptmaster_asset_graph_v1`：资产关系图谱边。
 - `promptmaster_asset_patches_v1`：自动迭代补丁建议。
+- `promptmaster_capability_packs_v1`：能力包组合。
+- `promptmaster_market_items_v1`：本地市场条目。
+- `promptmaster_remote_market_items_v1`：远程市场本地契约条目。
+- `promptmaster_market_accounts_v1`：市场账号本地契约。
+- `promptmaster_market_orders_v1`：市场订单占位记录。
+- `promptmaster_evaluator_results_v1`：Evaluator 评分记录。
+- `promptmaster_benchmark_runs_v1`：Benchmark 运行记录。
+- `promptmaster_team_spaces_v1`：团队空间本地契约。
+- `promptmaster_approval_requests_v1`：团队审批请求。
+- `promptmaster_online_experiments_v1`：线上实验契约和事件记录。
 
 可以通过项目库的 JSON 导入导出功能迁移或备份资产。
 
@@ -73,22 +86,33 @@ npm install
 cp .env.example .env.local
 ```
 
-然后在 `.env.local` 中填入本地模型服务密钥：
+然后在 `.env.local` 中填入统一模型网关配置：
 
 ```bash
-GEMINI_API_KEY=
+MODEL_NAME=gpt-5.5
+MODEL_BASE_URL=
+MODEL_API_KEY=
+MODEL_PROVIDER=openai-compatible
 ```
 
-启动开发服务器：
+工具执行相关变量默认关闭，只有本地开发调试时才建议开启：
 
 ```bash
-npm run dev
+ENABLE_TOOL_EXECUTION=false
+TOOL_EXECUTION_ALLOWLIST=tool.ripgrep,tool.http_get,tool.json_extract,sdk.openai.chat
+TOOL_EXECUTION_TIMEOUT_MS=15000
+```
+
+一键启动前后端开发服务器：
+
+```bash
+npm run dev:all
 ```
 
 2.0 架构开始拆分前端、后端和文档库：
 
 - 前端：React + Vite，负责工作台、资产库、构建器、运行实验室、反馈洞察、知识库、设置和本地交互。
-- 后端：Node.js ESM 本地 API，负责健康检查、文档索引、任务分析、Prompt 编译、资产草稿生成、Run Lab 对比、反馈诊断和后续本地 JSON 状态。
+- 后端：Node.js ESM 本地 API，负责健康检查、文档索引、任务分析、Prompt 编译、资产草稿生成、Builder Agent 对话回填、统一模型网关、Run Lab 对比/多模型运行、Evaluator 自动评分、Tool Adapter 执行门控、市场/团队/实验本地契约、反馈诊断和本地 JSON 状态。
 - 文档库：`docs/` 独立保存产品方案、提示词工程知识库和资产包规格，后端通过 `/api/docs/index` 提供索引。
 
 分别启动前后端：
@@ -128,6 +152,7 @@ npm run preview
 ├── components/
 │   ├── builders/            # 16 类资产包生成器
 │   ├── feedback/            # 反馈诊断、AssetPatch Review 和 Feedback Insights
+│   ├── governance/          # 团队空间、审批流和工具执行门控
 │   ├── knowledge/           # 文档库和架构索引
 │   ├── layout/              # 应用外壳和一级导航
 │   ├── library/             # 资产库列表、筛选和资产卡片
@@ -135,17 +160,20 @@ npm run preview
 │   ├── run-lab/             # Run Lab 对比和运行实验
 │   ├── settings/            # 本地存储、环境变量和运行边界
 │   └── workspace/           # TaskModel、资产插槽和 PromptIR 编译面板
-├── geminiService.ts         # 提示词优化、建议、聊天和测试调用
+├── modelService.ts          # 统一模型网关客户端：提示词优化、建议、聊天和测试调用
 ├── types.ts                 # 场景、历史、资产和结构化 schema 类型
 ├── hooks/
 │   ├── useAssetGraph.ts
 │   ├── useAssetLibrary.ts   # 项目库和优化方向持久化
 │   ├── useAssetPatches.ts
 │   ├── useFeedbackEvents.ts
+│   ├── useOnlineExperiments.ts
 │   ├── usePersistentState.ts
 │   ├── usePromptCompilations.ts
 │   ├── usePromptHistory.ts
 │   ├── usePromptRuns.ts
+│   ├── useRemoteMarket.ts
+│   ├── useTeamOps.ts
 │   └── useTaskModels.ts
 ├── services/
 │   ├── apiClient.ts         # 2.0 后端 API 客户端和前端 fallback 入口
@@ -174,3 +202,5 @@ npm run preview
 - `.env.example` 只保留变量名和空模板。
 - 项目库中的 MCP/SDK/Tool/Connector 资产只描述能力、接口和约束，不代表已经真实连接、执行或验证。
 - 涉及写操作、远程系统、敏感资料或密钥时，应在真实执行前获得用户确认。
+- Tool Adapter 执行必须同时满足 `ENABLE_TOOL_EXECUTION=true`、资产 `status=executable`、adapter 命中 `TOOL_EXECUTION_ALLOWLIST`、用户显式确认。否则后端只返回 blocked、requires_confirmation 或 dry-run 信息。
+- 模型接口只通过 `.env.local` 的 `MODEL_BASE_URL` 和 `MODEL_API_KEY` 接入；仓库不会写死任何 key、token 或 base URL。

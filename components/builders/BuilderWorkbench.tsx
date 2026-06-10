@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Boxes, Check, FileText, Save, Wand2 } from 'lucide-react';
+import { Boxes, Check, FileText, MessageSquare, Save, Send, UploadCloud, Wand2 } from 'lucide-react';
 import { AssetBuilderDraft, AssetType, OptimizationDirection, PromptAsset, ScenarioType, TaskModel } from '../../types';
-import { analyzeTaskRemote, buildAssetDraftRemote } from '../../services/apiClient';
+import { analyzeTaskRemote, autofillAssetDraftRemote, buildAssetDraftRemote, chatAssetBuilderRemote } from '../../services/apiClient';
 import { analyzeTaskLocally } from '../../services/taskAnalysis';
 import { ALL_ASSET_TYPES, assetBuilderDraftToPromptAsset, buildLocalAssetDraft } from '../../services/assetDrafts';
 import { ASSET_TYPE_LABELS } from '../../services/library';
+import { extractAssetText } from '../../services/fileParsing';
 import { InfoBlock, Panel } from '../ops/OpsPrimitives';
 import { Badge, Button, PageHeader, StatusPill } from '../ui/DesignSystem';
 
@@ -15,15 +16,13 @@ interface BuilderWorkbenchProps {
   onAssetCreate: (asset: PromptAsset) => void;
 }
 
-const starterInput = '我想把一个反复出现的 AI 任务封装成可复用资产，能自动补齐触发条件、输入输出、边界、示例和评估标准。';
-
 export const BuilderWorkbench: React.FC<BuilderWorkbenchProps> = ({
   assets,
   directions,
   scenario,
   onAssetCreate
 }) => {
-  const [input, setInput] = useState(starterInput);
+  const [input, setInput] = useState('');
   const [buildMode, setBuildMode] = useState<'manual' | 'agent'>('agent');
   const [sourceText, setSourceText] = useState('');
   const [handoffContext, setHandoffContext] = useState<{ assetType?: AssetType; prompt?: string; packId?: string; slotKey?: string } | null>(null);
@@ -32,6 +31,10 @@ export const BuilderWorkbench: React.FC<BuilderWorkbenchProps> = ({
   const [draft, setDraft] = useState<AssetBuilderDraft | null>(null);
   const [notice, setNotice] = useState('');
   const [isBusy, setIsBusy] = useState(false);
+  const [builderChatInput, setBuilderChatInput] = useState('');
+  const [builderMessages, setBuilderMessages] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([]);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
 
   const selectedTypeHint = useMemo(() => typeHints[assetType], [assetType]);
   const completion = draft ? calculateDraftCompletion(draft) : 0;
@@ -79,9 +82,92 @@ export const BuilderWorkbench: React.FC<BuilderWorkbenchProps> = ({
     setIsBusy(true);
     setNotice('');
     try {
-      setDraft(await buildAssetDraftRemote({ assetType, task, input: agentInput }));
+      const nextDraft = await buildAssetDraftRemote({ assetType, task, input: agentInput });
+      setDraft(nextDraft);
+      setMissingFields([]);
+      setSuggestedActions(nextDraft.nextSteps || []);
     } catch {
-      setDraft(buildLocalAssetDraft(assetType, task, agentInput));
+      const nextDraft = buildLocalAssetDraft(assetType, task, agentInput);
+      setDraft(nextDraft);
+      setMissingFields([]);
+      setSuggestedActions(nextDraft.nextSteps || []);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleAutofillDraft = async () => {
+    if (!agentInput.trim() && builderMessages.length === 0) {
+      setNotice('请先用一句话或资料告诉 Agent 要构建什么资产。');
+      return;
+    }
+    setIsBusy(true);
+    setNotice('');
+    try {
+      const nextDraft = await autofillAssetDraftRemote({
+        assetType,
+        messages: builderMessages.map(message => ({ role: message.role, content: message.text })),
+        input: agentInput,
+        sourceText,
+        currentDraft: draft
+      });
+      setDraft(nextDraft);
+      setMissingFields([]);
+      setSuggestedActions(nextDraft.nextSteps || []);
+      setNotice('Agent 已根据当前对话和资料自动回填草稿。');
+    } catch (error) {
+      setNotice(`自动回填失败：${error instanceof Error ? error.message : '未知错误'}。可继续使用本地草稿生成。`);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleBuilderChat = async () => {
+    if (!builderChatInput.trim()) return;
+    const current = builderChatInput;
+    const nextMessages = [...builderMessages, { role: 'user' as const, text: current }];
+    setBuilderMessages(nextMessages);
+    setBuilderChatInput('');
+    setIsBusy(true);
+    try {
+      const response = await chatAssetBuilderRemote({
+        messages: nextMessages.map(message => ({ role: message.role, content: message.text })),
+        assetType,
+        assets,
+        currentDraft: draft,
+        sourceText,
+        input
+      });
+      setBuilderMessages(previous => [...previous, { role: 'assistant', text: response.reply || response.message }]);
+      if (response.draft) setDraft(response.draft);
+      setMissingFields(response.missingFields || []);
+      setSuggestedActions(response.suggestedActions || response.draft?.nextSteps || []);
+      if (response.message && !response.ok) setNotice(response.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setBuilderMessages(previous => [...previous, { role: 'assistant', text: `构建 Agent 暂不可用：${message}` }]);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = event.currentTarget.files;
+    const files: File[] = fileList ? Array.from(fileList) : [];
+    event.target.value = '';
+    if (!files.length) return;
+    setIsBusy(true);
+    setNotice('');
+    try {
+      const chunks: string[] = [];
+      for (const file of files) {
+        const text = await extractAssetText(file);
+        chunks.push(`## ${file.name}\n${text.slice(0, 20000)}`);
+      }
+      setSourceText(previous => [previous, ...chunks].filter(Boolean).join('\n\n---\n\n'));
+      setNotice(`已导入 ${files.length} 个文件，Agent 会把它们作为来源资料提炼资产。`);
+    } catch (error) {
+      setNotice(`文件导入失败：${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setIsBusy(false);
     }
@@ -98,6 +184,20 @@ export const BuilderWorkbench: React.FC<BuilderWorkbenchProps> = ({
     };
     onAssetCreate(asset);
     setNotice(`已保存为项目库资产：${asset.title}`);
+  };
+
+  const updateDraft = (patch: Partial<AssetBuilderDraft>) => {
+    setDraft(previous => previous ? { ...previous, ...patch } : previous);
+  };
+
+  const updateDraftIntegrationText = (field: 'capabilities' | 'inputs' | 'outputs' | 'constraints', value: string) => {
+    setDraft(previous => previous ? {
+      ...previous,
+      integration: {
+        ...previous.integration,
+        [field]: value.split(/\n|；|;/).map(item => item.trim()).filter(Boolean)
+      }
+    } : previous);
   };
 
   return (
@@ -143,17 +243,51 @@ export const BuilderWorkbench: React.FC<BuilderWorkbenchProps> = ({
             />
             {buildMode === 'agent' && (
               <div className="mt-3">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <input id="builder-source-file" type="file" multiple className="hidden" accept=".md,.txt,.json,.docx,.xlsx,.xls,.csv,application/json,text/plain,text/markdown" onChange={handleSourceFileUpload} />
+                  <label htmlFor="builder-source-file" className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 hover:bg-zinc-800">
+                    <UploadCloud size={16} /> 上传资料给 Agent
+                  </label>
+                  <span className="text-xs text-zinc-600">支持 Markdown / TXT / JSON / Word / Excel / CSV</span>
+                </div>
                 <textarea
                   value={sourceText}
                   onChange={(event) => setSourceText(event.target.value)}
                   className="field-input min-h-28 resize-y"
                   placeholder="可选：粘贴文档、链接摘要、API/MCP/SDK 说明或现有提示词，Agent 会据此提炼字段。"
                 />
+                <div className="mt-3 rounded-md border border-zinc-800 bg-zinc-950 p-3">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-zinc-300">
+                    <MessageSquare size={14} /> 构建 Agent 对话
+                  </div>
+                  <div className="max-h-56 space-y-2 overflow-auto pr-1 custom-scrollbar">
+                    {builderMessages.length === 0 ? (
+                      <div className="rounded-md border border-zinc-800 bg-zinc-900/60 p-3 text-xs leading-relaxed text-zinc-500">
+                        你可以用自然语言继续补充：比如“把这份文档提炼成 Skill”“帮我生成一个只读 GitHub MCP 规格”“这个 Workflow 要增加人工审核节点”。
+                      </div>
+                    ) : builderMessages.map((message, index) => (
+                      <div key={`${message.role}-${index}`} className={`rounded-md border p-3 text-xs leading-relaxed ${message.role === 'user' ? 'border-teal-900/60 bg-teal-950/25 text-teal-100' : 'border-zinc-800 bg-zinc-900/70 text-zinc-300'}`}>
+                        {message.text}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={builderChatInput}
+                      onChange={(event) => setBuilderChatInput(event.target.value)}
+                      onKeyDown={(event) => event.key === 'Enter' && handleBuilderChat()}
+                      className="field-input"
+                      placeholder="继续告诉 Agent 你的资产目标或修改要求..."
+                    />
+                    <Button onClick={handleBuilderChat} disabled={isBusy || !builderChatInput.trim()} icon={<Send size={16} />}>发送</Button>
+                  </div>
+                </div>
               </div>
             )}
             <div className="flex flex-wrap gap-2 mt-3">
               <Button onClick={handleAnalyze} disabled={isBusy || !input.trim()} icon={<FileText size={16} />}>生成任务卡</Button>
               <Button variant="primary" onClick={handleBuildDraft} disabled={isBusy || !input.trim()} icon={<Boxes size={16} />}>生成 {ASSET_TYPE_LABELS[assetType]} 草稿</Button>
+              <Button onClick={handleAutofillDraft} disabled={isBusy || (!agentInput.trim() && builderMessages.length === 0)} icon={<Wand2 size={16} />}>Agent 自动回填</Button>
               <Button onClick={handleSaveDraft} disabled={!draft} icon={<Save size={16} />}>保存到项目库</Button>
             </div>
 
@@ -203,22 +337,70 @@ export const BuilderWorkbench: React.FC<BuilderWorkbenchProps> = ({
                 <InfoBlock label="摘要" value={draft.summary} wide />
                 <InfoBlock label="缺失/下一步" value={draft.nextSteps.join('；') || '暂无'} wide />
               </div>
-              <pre className="max-h-[520px] overflow-auto custom-scrollbar whitespace-pre-wrap break-words rounded-md border border-zinc-800 bg-zinc-950 p-5 text-xs leading-relaxed text-zinc-300">
-                {draft.content}
-              </pre>
+              {(missingFields.length > 0 || suggestedActions.length > 0) && (
+                <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <InfoBlock label="Agent 识别缺口" value={missingFields.join('；') || '暂无明显缺口'} />
+                  <InfoBlock label="建议动作" value={suggestedActions.join('；') || '草稿可保存，建议人工复核。'} />
+                </div>
+              )}
+              <div className="space-y-3">
+                <input
+                  value={draft.title}
+                  onChange={(event) => updateDraft({ title: event.target.value })}
+                  className="field-input"
+                  placeholder="资产标题"
+                />
+                <textarea
+                  value={draft.summary}
+                  onChange={(event) => updateDraft({ summary: event.target.value })}
+                  className="field-input min-h-20 resize-y"
+                  placeholder="资产摘要"
+                />
+                <textarea
+                  value={draft.content}
+                  onChange={(event) => updateDraft({ content: event.target.value })}
+                  className="field-input min-h-[360px] resize-y font-mono text-xs leading-relaxed"
+                  placeholder="资产正文"
+                />
+              </div>
             </Panel>
 
             <Panel title="4. 注入规格" icon={<FileText size={18} className="text-zinc-400" />}>
               <div className="space-y-3">
-                <InfoBlock label="entryName" value={draft.integration.entryName} />
-                <InfoBlock label="capabilities" value={draft.integration.capabilities.join('；')} />
-                <InfoBlock label="inputs" value={draft.integration.inputs.join('；')} />
-                <InfoBlock label="outputs" value={draft.integration.outputs.join('；')} />
-                <InfoBlock label="constraints" value={draft.integration.constraints.join('；')} />
+                <input
+                  value={draft.integration.entryName}
+                  onChange={(event) => setDraft(previous => previous ? { ...previous, integration: { ...previous.integration, entryName: event.target.value } } : previous)}
+                  className="field-input"
+                  placeholder="entryName，例如 skill.contract_risk_review"
+                />
+                <textarea
+                  value={draft.integration.capabilities.join('\n')}
+                  onChange={(event) => updateDraftIntegrationText('capabilities', event.target.value)}
+                  className="field-input min-h-20 resize-y"
+                  placeholder="capabilities，每行一条"
+                />
+                <textarea
+                  value={draft.integration.inputs.join('\n')}
+                  onChange={(event) => updateDraftIntegrationText('inputs', event.target.value)}
+                  className="field-input min-h-20 resize-y"
+                  placeholder="inputs，每行一条"
+                />
+                <textarea
+                  value={draft.integration.outputs.join('\n')}
+                  onChange={(event) => updateDraftIntegrationText('outputs', event.target.value)}
+                  className="field-input min-h-20 resize-y"
+                  placeholder="outputs，每行一条"
+                />
+                <textarea
+                  value={draft.integration.constraints.join('\n')}
+                  onChange={(event) => updateDraftIntegrationText('constraints', event.target.value)}
+                  className="field-input min-h-20 resize-y"
+                  placeholder="constraints，每行一条"
+                />
                 <InfoBlock label="schema" value={draft.schemaPreview.join(' / ')} />
                 <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-400">
                   <StatusPill status={runtimeDraft ? 'context_only' : 'schema_ready'} />
-                  {runtimeDraft ? '该类型保存后仅作为上下文或 schema，不代表已连接或可执行。' : '保存后可立即回到工作台被推荐、注入和编译。'}
+                  {runtimeDraft ? '该类型保存后仅作为上下文或 schema，不代表已连接或可执行。' : '保存后可立即回到工作台被推荐，并作为上下文参与提示词优化。'}
                 </div>
                 <div className="text-[11px] text-amber-100 bg-amber-400/10 border border-amber-300/20 rounded-lg p-3">
                   {draft.warnings.join('；')}

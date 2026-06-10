@@ -93,7 +93,7 @@ export const Badge: React.FC<{
 export const StatusPill: React.FC<{ status?: CapabilityStatus | 'online' | 'offline' | 'preview_only' | 'completed' | 'failed' | 'missing_provider_config' }> = ({ status = 'context_only' }) => {
   const config: Record<string, { label: string; tone: keyof typeof toneClasses; icon: React.ReactNode }> = {
     context_only: { label: '仅上下文', tone: 'muted', icon: <Circle size={10} /> },
-    schema_ready: { label: '可编译', tone: 'accent', icon: <CheckCircle2 size={12} /> },
+    schema_ready: { label: '结构就绪', tone: 'accent', icon: <CheckCircle2 size={12} /> },
     testable: { label: '可测试', tone: 'warn', icon: <AlertCircle size={12} /> },
     connected: { label: '已连接', tone: 'good', icon: <CheckCircle2 size={12} /> },
     executable: { label: '可执行', tone: 'good', icon: <CheckCircle2 size={12} /> },

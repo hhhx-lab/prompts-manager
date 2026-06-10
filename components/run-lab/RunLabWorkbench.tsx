@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, Check, FileText, GitBranch, Save, Split, Wand2 } from 'lucide-react';
-import { CapabilityCheck, CapabilityPack, CompileMode, EvaluatorAssetSchema, EvaluatorResult, OptimizationDirection, PromptAsset, PromptRun, RunLabComparison, RunLabRunResult, ScenarioType, TaskModel } from '../../types';
-import { analyzeTaskRemote, compareRunLabRemote, getCapabilityCheck, runPromptRemote } from '../../services/apiClient';
+import { CapabilityCheck, CapabilityPack, CompileMode, EvaluatorAssetSchema, EvaluatorResult, OnlineExperiment, OptimizationDirection, PromptAsset, PromptRun, RunLabComparison, RunLabMultiRunResult, RunLabRunResult, ScenarioType, TaskModel } from '../../types';
+import { analyzeTaskRemote, compareRunLabRemote, createOnlineExperimentRemote, getCapabilityCheck, runMultiModelRemote, runPromptRemote, scoreEvaluatorRemote, trackOnlineExperimentRemote } from '../../services/apiClient';
 import { analyzeTaskLocally } from '../../services/taskAnalysis';
 import { compilePrompt } from '../../services/promptCompiler';
 import { ASSET_TYPE_LABELS, recommendAssets } from '../../services/library';
@@ -11,6 +11,7 @@ import { usePromptRuns } from '../../hooks/usePromptRuns';
 import { useBenchmarkRuns } from '../../hooks/useBenchmarkRuns';
 import { useEvaluatorResults } from '../../hooks/useEvaluatorResults';
 import { getPackAssetIds } from '../../services/capabilityPacks';
+import { useOnlineExperiments } from '../../hooks/useOnlineExperiments';
 
 interface RunLabWorkbenchProps {
   assets: PromptAsset[];
@@ -19,13 +20,12 @@ interface RunLabWorkbenchProps {
   scenario: ScenarioType;
 }
 
-const starterInput = '验证一个“合同风险审查”提示词：比较不插入资产与插入 Reference、Policy、Evaluator 后的提示词差异。';
 const compileModes: CompileMode[] = ['readable', 'strict', 'tool-ready', 'agent-ready', 'eval-ready'];
 type ComparisonTarget = 'baseline' | 'assets' | 'capability_pack';
 
 export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabilityPacks, directions, scenario }) => {
-  const [input, setInput] = useState(starterInput);
-  const [expectedOutput, setExpectedOutput] = useState('应输出风险等级、依据、建议、待确认问题，并明确不确定来源。');
+  const [input, setInput] = useState('');
+  const [expectedOutput, setExpectedOutput] = useState('');
   const [taskModel, setTaskModel] = useState<TaskModel | null>(null);
   const [compileMode, setCompileMode] = useState<CompileMode>('strict');
   const [comparisonTarget, setComparisonTarget] = useState<ComparisonTarget>('assets');
@@ -33,13 +33,17 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [comparison, setComparison] = useState<RunLabComparison | null>(null);
   const [runResult, setRunResult] = useState<RunLabRunResult | null>(null);
+  const [multiRunResult, setMultiRunResult] = useState<RunLabMultiRunResult | null>(null);
   const [evaluatorResult, setEvaluatorResult] = useState<EvaluatorResult | null>(null);
+  const [candidateModels, setCandidateModels] = useState('');
+  const [activeExperiment, setActiveExperiment] = useState<OnlineExperiment | null>(null);
   const [notice, setNotice] = useState('');
   const [capability, setCapability] = useState<CapabilityCheck | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const { promptRuns, savePromptRun } = usePromptRuns();
   const { benchmarkRuns, saveBenchmarkRun } = useBenchmarkRuns();
   const { evaluatorResults, saveEvaluatorResult } = useEvaluatorResults();
+  const { onlineExperiments, saveOnlineExperiment } = useOnlineExperiments();
 
   const candidates = useMemo(() => recommendAssets(assets, input, directions.map(direction => direction.name), 10), [assets, directions, input]);
   const selectedPack = capabilityPacks.find(pack => pack.id === selectedPackId) || capabilityPacks[0];
@@ -94,9 +98,29 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
       const result = await runPromptRemote({ compilation, input });
       setRunResult(result);
       savePromptRun(toPromptRun(result));
-      const nextEvaluatorResult = buildEvaluatorResult(result.id, selectedEvaluatorAssets, capability?.model.configured || false);
+      let nextEvaluatorResult: EvaluatorResult;
+      try {
+        nextEvaluatorResult = await scoreEvaluatorRemote({ run: result, evaluators: selectedEvaluatorAssets, expectedOutput });
+      } catch {
+        nextEvaluatorResult = buildEvaluatorResult(result.id, selectedEvaluatorAssets, capability?.model.configured || false);
+      }
       setEvaluatorResult(nextEvaluatorResult);
       saveEvaluatorResult(nextEvaluatorResult);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleMultiRun = async () => {
+    const task = taskModel || analyzeTaskLocally(input, assets, directions, scenario);
+    const compilation = compilePrompt(task, selectedAssets, directions, compileMode);
+    const models = candidateModels.split(',').map(model => model.trim()).filter(Boolean);
+    setIsBusy(true);
+    setNotice('');
+    try {
+      const result = await runMultiModelRemote({ compilation, input, models });
+      setMultiRunResult(result);
+      result.runs.forEach(run => savePromptRun(toPromptRun(run)));
     } finally {
       setIsBusy(false);
     }
@@ -130,6 +154,57 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
     setNotice('已保存 Benchmark 记录，可用于后续回归比较。');
   };
 
+  const handleCreateOnlineExperiment = async () => {
+    if (!comparison) {
+      setNotice('请先生成资产开关对比，再创建线上实验契约。');
+      return;
+    }
+    setIsBusy(true);
+    setNotice('');
+    try {
+      const experiment = await createOnlineExperimentRemote({
+        name: `Run Lab 实验：${taskModel?.goal || input.slice(0, 32)}`,
+        variants: [
+          { id: 'baseline', name: '无资产基线', weight: 50 },
+          { id: 'asset_variant', name: comparisonTarget === 'capability_pack' ? '能力包注入版本' : '资产注入版本', weight: 50 }
+        ],
+        metrics: ['manual_win', 'quality_score', 'conversion']
+      });
+      setActiveExperiment(experiment);
+      saveOnlineExperiment(experiment);
+      setNotice('已创建线上实验契约，可继续记录人工胜出事件。');
+    } catch (error) {
+      setNotice(`创建线上实验失败：${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleTrackExperiment = async (variantId: string) => {
+    const targetExperiment = activeExperiment || onlineExperiments[0];
+    if (!targetExperiment) {
+      setNotice('请先创建线上实验契约。');
+      return;
+    }
+    setIsBusy(true);
+    setNotice('');
+    try {
+      const updated = await trackOnlineExperimentRemote({
+        experimentId: targetExperiment.id,
+        variantId,
+        metric: 'manual_win',
+        value: 1
+      });
+      setActiveExperiment(updated);
+      saveOnlineExperiment(updated);
+      setNotice(`已记录 ${variantId} 胜出事件，当前事件数 ${updated.events.length}。`);
+    } catch (error) {
+      setNotice(`记录实验事件失败：${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   const toggleAsset = (assetId: string) => {
     setSelectedAssetIds(previous => previous.includes(assetId)
       ? previous.filter(id => id !== assetId)
@@ -143,12 +218,13 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
       <PageHeader
         eyebrow="Run Lab"
         title="运行实验室"
-        description="比较资产开关、编译模式和真实运行状态；未配置模型密钥时明确进入仅编译预览。"
+        description="比较不插资产与插入资产后的优化提示词表现；未配置模型密钥时只做安全预览，不伪装真实运行。"
         actions={
           <>
-            <StatusPill status={capability?.model.configured ? 'connected' : 'missing_provider_config'} />
+            <StatusPill status={capability?.model.status === 'connected' ? 'connected' : capability?.model.configured ? 'testable' : 'missing_provider_config'} />
             <Button onClick={handleCompare} disabled={isBusy || !input.trim()} icon={<Split size={16} />}>资产开关对比</Button>
             <Button variant="primary" onClick={handleRun} disabled={isBusy || !input.trim()} icon={<Activity size={16} />}>真实运行/预览</Button>
+            <Button onClick={handleMultiRun} disabled={isBusy || !input.trim()} icon={<Activity size={16} />}>多模型实验</Button>
           </>
         }
       />
@@ -167,9 +243,16 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
               className="field-input mt-3 min-h-[74px] resize-y"
               placeholder="Benchmark 期望输出或验收要点"
             />
+            <input
+              value={candidateModels}
+              onChange={(event) => setCandidateModels(event.target.value)}
+              className="field-input mt-3"
+              placeholder="多模型候选，例如：gpt-5.5,gpt-5.5-mini"
+            />
             <div className="flex flex-wrap gap-2 mt-3">
-              <Button onClick={handleAnalyze} disabled={isBusy || !input.trim()} icon={<Wand2 size={16} />}>生成任务卡</Button>
+            <Button onClick={handleAnalyze} disabled={isBusy || !input.trim()} icon={<Wand2 size={16} />}>生成任务卡</Button>
               <Button onClick={handleSaveBenchmark} disabled={isBusy} icon={<Save size={16} />}>保存 Benchmark</Button>
+              <Button onClick={handleCreateOnlineExperiment} disabled={isBusy || !comparison} icon={<Activity size={16} />}>创建线上实验</Button>
               {compileModes.map(mode => (
                 <button key={mode} onClick={() => setCompileMode(mode)} className={`rounded-md border px-3 py-2 text-xs font-semibold transition-colors ${compileMode === mode ? 'border-teal-800 bg-teal-950/50 text-teal-100' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-700'}`}>
                   {mode}
@@ -211,7 +294,7 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
                       selectedPack.missingSlots.length ? `缺失槽位: ${selectedPack.missingSlots.join('、')}` : '',
                       missingPackAssetIds.length ? `缺失资产快照: ${missingPackAssetIds.length} 个` : '',
                       selectedAssets.some(asset => ['mcp', 'sdk', 'tool', 'connector'].includes(asset.type)) ? '包含工具类资产，仅作为上下文/schema。' : ''
-                    ].filter(Boolean).join('；') || '能力包槽位可用于本轮编译。'} wide />
+                    ].filter(Boolean).join('；') || '能力包槽位可用于本轮测试。'} wide />
                   </div>
                 ) : <EmptyState title="暂无能力包" description="先到能力包模块组合资产，再回到 Run Lab 验证。" />}
               </div>
@@ -271,11 +354,23 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
                     {evaluatorResult.unavailableReason ? ` · ${evaluatorResult.unavailableReason}` : ''}
                   </div>
                 )}
-                {!capability?.model.configured && (
+                {capability?.model.status !== 'connected' && (
                   <div className="rounded-md border border-amber-900/60 bg-amber-950/15 p-3 text-xs text-amber-100/80">
-                    未配置 GEMINI_API_KEY，当前只展示 Evaluator 维度和本地/manual 评分占位，不声称真实模型评分。
+                    模型网关未真实连通，当前只展示 Evaluator 维度和本地/manual 评分占位，不声称真实模型评分。
                   </div>
                 )}
+                {evaluatorResult?.issues?.length ? (
+                  <div className="rounded-md border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-400">
+                    <div className="font-semibold text-zinc-200">模型发现的问题</div>
+                    <div className="mt-2 space-y-1">{evaluatorResult.issues.map(issue => <div key={issue}>- {issue}</div>)}</div>
+                  </div>
+                ) : null}
+                {evaluatorResult?.recommendations?.length ? (
+                  <div className="rounded-md border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-400">
+                    <div className="font-semibold text-zinc-200">改进建议</div>
+                    <div className="mt-2 space-y-1">{evaluatorResult.recommendations.map(item => <div key={item}>- {item}</div>)}</div>
+                  </div>
+                ) : null}
               </div>
             )}
           </Panel>
@@ -332,6 +427,61 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
             <pre className="max-h-[420px] overflow-auto custom-scrollbar whitespace-pre-wrap break-words bg-zinc-950 border border-zinc-800 rounded-lg p-4 text-[11px] leading-relaxed text-zinc-300">{runResult.output}</pre>
           </Panel>
         )}
+
+        {multiRunResult && (
+          <Panel title="多模型实验结果" icon={<Activity size={18} className="text-zinc-400" />}>
+            <div className="mb-3 rounded-md border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-400">
+              {multiRunResult.summary}
+            </div>
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              {multiRunResult.runs.map(run => (
+                <div key={`${run.id}-${run.model}`} className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-zinc-100">{run.model}</span>
+                    <StatusPill status={run.status} />
+                  </div>
+                  <p className="mb-2 text-xs text-zinc-500">{run.message}</p>
+                  <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-300 custom-scrollbar">{run.output}</pre>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        )}
+
+        <Panel title="线上实验契约" icon={<Activity size={18} className="text-zinc-400" />}>
+          {(activeExperiment || onlineExperiments[0]) ? (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+              <div className="space-y-3">
+                <InfoBlock label="当前实验" value={(activeExperiment || onlineExperiments[0])?.name || ''} />
+                <InfoBlock label="状态" value={(activeExperiment || onlineExperiments[0])?.status || 'draft'} />
+                <InfoBlock label="事件数" value={`${(activeExperiment || onlineExperiments[0])?.events.length || 0}`} />
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => handleTrackExperiment('baseline')} disabled={isBusy}>记录基线胜出</Button>
+                  <Button variant="primary" onClick={() => handleTrackExperiment('asset_variant')} disabled={isBusy}>记录资产版胜出</Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {((activeExperiment || onlineExperiments[0])?.variants || []).map(variant => {
+                  const stats = experimentStats(activeExperiment || onlineExperiments[0], variant.id);
+                  return (
+                    <div key={variant.id} className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="truncate text-sm font-semibold text-zinc-100">{variant.name}</div>
+                        <Badge tone="neutral">{variant.weight}%</Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <InfoBlock label="wins" value={`${stats.wins}`} />
+                        <InfoBlock label="score" value={`${stats.score}`} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <EmptyState title="暂无线上实验契约" description="先生成资产开关对比，然后点击“创建线上实验”。这里记录的是本地实验契约，不代表线上流量已经接入。" />
+          )}
+        </Panel>
 
         <Panel title="6. 最近运行记录" icon={<Activity size={18} className="text-zinc-400" />}>
           {promptRuns.length === 0 ? (
@@ -403,6 +553,16 @@ const metricOf = (prompt: string, assetCount: number, warningCount: number) => (
   warningCount
 });
 
+const experimentStats = (experiment: OnlineExperiment | null | undefined, variantId: string) => {
+  const events = experiment?.events.filter(event => event.variantId === variantId) || [];
+  const wins = events.filter(event => event.metric === 'manual_win').reduce((sum, event) => sum + Number(event.value || 0), 0);
+  const scoreEvents = events.filter(event => event.metric === 'quality_score');
+  const score = scoreEvents.length
+    ? Math.round(scoreEvents.reduce((sum, event) => sum + Number(event.value || 0), 0) / scoreEvents.length)
+    : 0;
+  return { wins, score };
+};
+
 const buildEvaluatorResult = (
   runId: string,
   evaluatorAssets: PromptAsset[],
@@ -428,7 +588,7 @@ const buildEvaluatorResult = (
       ? `已基于 Evaluator「${evaluator.title}」生成${modelConfigured ? '评分摘要' : '本地/manual 评分占位'}。`
       : '未选择 Evaluator，无法生成评分。',
     unavailableReason: evaluator
-      ? modelConfigured ? undefined : '缺少 GEMINI_API_KEY，未执行真实模型评分。'
+      ? modelConfigured ? undefined : '缺少 MODEL_BASE_URL 或 MODEL_API_KEY，未执行真实模型评分。'
       : '未选择 Evaluator 资产。',
     createdAt: Date.now()
   };

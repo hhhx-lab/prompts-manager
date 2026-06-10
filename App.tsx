@@ -64,7 +64,7 @@ import {
   ToolAssetSchema,
   WorkflowAssetSchema
 } from './types';
-import { editImageWithText, optimizePrompt, refreshSuggestions, runABTest, startChat } from './geminiService';
+import { editImageWithText, optimizePrompt, refreshSuggestions, runABTest, startChat } from './modelService';
 import { useAssetLibrary } from './hooks/useAssetLibrary';
 import { usePromptHistory } from './hooks/usePromptHistory';
 import { extractAssetText, MAX_ATTACHMENTS, parseOptimizationAttachment } from './services/fileParsing';
@@ -96,6 +96,7 @@ import { SettingsView } from './components/settings/SettingsView';
 import { PromptOpsWorkspace } from './components/workspace/PromptOpsWorkspace';
 import { CapabilityPacksView } from './components/packs/CapabilityPacksView';
 import { MarketplaceView } from './components/marketplace/MarketplaceView';
+import { GovernanceWorkbench } from './components/governance/GovernanceWorkbench';
 import { Badge, Button, EmptyState, PageHeader, StatusPill } from './components/ui/DesignSystem';
 import { importAssetFromUrlRemote } from './services/apiClient';
 import { useCapabilityPacks } from './hooks/useCapabilityPacks';
@@ -108,7 +109,7 @@ type ViewMode = AppViewMode;
 const resolveViewFromHash = (): ViewMode => {
   if (typeof window === 'undefined') return 'workspace';
   const hash = window.location.hash.replace('#', '');
-  if (['workspace', 'library', 'packs', 'market', 'builder', 'runlab', 'feedback', 'knowledge', 'settings', 'ops'].includes(hash)) return hash as ViewMode;
+  if (['workspace', 'library', 'packs', 'market', 'builder', 'runlab', 'feedback', 'governance', 'knowledge', 'settings', 'ops'].includes(hash)) return hash as ViewMode;
   return 'workspace';
 };
 
@@ -842,10 +843,12 @@ const App: React.FC = () => {
             setCapabilityPacks={setCapabilityPacks}
           />
         );
+      case 'governance':
+        return <GovernanceWorkbench assets={assets} packs={capabilityPacks} />;
       case 'knowledge':
         return <KnowledgeBaseView />;
       case 'settings':
-        return <SettingsView assetCount={assets.length} directionCount={allDirections.length} historyCount={history.length} />;
+        return <SettingsView assets={assets} assetCount={assets.length} directionCount={allDirections.length} historyCount={history.length} />;
       case 'ops':
       default:
         return <OpsWorkbench assets={assets} directions={allDirections} scenario={scenario} />;
@@ -1341,7 +1344,7 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="rounded-lg border border-amber-900/50 bg-amber-950/15 p-4 text-xs leading-relaxed text-amber-100/80">
-                  MCP、SDK、Tool、Connector 默认只作为工程上下文参与编译。只有状态达到可执行，并由用户显式确认时，后续版本才允许真实调用。
+                  MCP、SDK、Tool、Connector 默认只作为工程上下文参与提示词优化。只有状态达到可执行，并由用户显式确认时，后续版本才允许真实调用。
                 </div>
               </aside>
             </div>

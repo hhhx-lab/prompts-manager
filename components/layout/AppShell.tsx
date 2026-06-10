@@ -2,7 +2,7 @@ import React from 'react';
 import { Activity, BookOpen, Boxes, CheckCircle2, Database, LayoutDashboard, PackageOpen, Settings, ShieldCheck, Store } from 'lucide-react';
 import { Badge } from '../ui/DesignSystem';
 
-export type AppViewMode = 'workspace' | 'library' | 'packs' | 'market' | 'builder' | 'runlab' | 'feedback' | 'knowledge' | 'settings' | 'ops';
+export type AppViewMode = 'workspace' | 'library' | 'packs' | 'market' | 'builder' | 'runlab' | 'feedback' | 'governance' | 'knowledge' | 'settings' | 'ops';
 
 interface AppShellProps {
   activeView: AppViewMode;
@@ -77,13 +77,14 @@ export const AppShell: React.FC<AppShellProps> = ({ activeView, assetCount, chil
 );
 
 const navItems: Array<{ view: AppViewMode; label: string; description: string; icon: React.ReactNode }> = [
-  { view: 'workspace', label: '工作台', description: '需求到运行闭环', icon: <LayoutDashboard size={17} /> },
+  { view: 'workspace', label: '工作台', description: '提示词优化闭环', icon: <LayoutDashboard size={17} /> },
   { view: 'library', label: '资产库', description: '资产治理与注入', icon: <Database size={17} /> },
   { view: 'packs', label: '能力包', description: '资产组合与一键使用', icon: <PackageOpen size={17} /> },
-  { view: 'market', label: '市场', description: '本地发布与下载', icon: <Store size={17} /> },
+  { view: 'market', label: '市场', description: '发布、远程队列与下载', icon: <Store size={17} /> },
   { view: 'builder', label: '构建器', description: '资产向导', icon: <Boxes size={17} /> },
   { view: 'runlab', label: '运行实验室', description: '测试与对比', icon: <Activity size={17} /> },
   { view: 'feedback', label: '反馈洞察', description: '补丁和归因', icon: <CheckCircle2 size={17} /> },
+  { view: 'governance', label: '协作治理', description: '团队审批与执行门控', icon: <ShieldCheck size={17} /> },
   { view: 'knowledge', label: '知识库', description: '文档索引', icon: <BookOpen size={17} /> },
   { view: 'settings', label: '设置', description: '运行边界', icon: <Settings size={17} /> }
 ];

@@ -1,22 +1,26 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, Database, FileText, RefreshCw, Server } from 'lucide-react';
+import { BookOpen, Database, FileText, RefreshCw, Search, Server } from 'lucide-react';
 import { ArchitectureManifest, BackendHealth, DocsIndexItem } from '../../types';
 import { getArchitectureManifest, getBackendHealth, getDocsIndex } from '../../services/apiClient';
-import { InfoBlock, Panel, StatusCard } from '../ops/OpsPrimitives';
+import { InfoBlock } from '../ops/OpsPrimitives';
+import { Badge, Button, EmptyState, MetricCard, PageHeader, Panel, StatusPill } from '../ui/DesignSystem';
 
 const categories: Record<DocsIndexItem['category'], string> = {
   product: '产品方案',
-  knowledge: '提示词工程知识',
-  'asset-spec': '资产包规格',
+  knowledge: '提示词工程',
+  'asset-spec': '资产规格',
   plan: '实施计划',
-  other: '其他文档'
+  other: '其他'
 };
+
+const categoryOrder: Array<DocsIndexItem['category'] | 'all'> = ['all', 'asset-spec', 'knowledge', 'product', 'plan', 'other'];
 
 export const KnowledgeBaseView: React.FC = () => {
   const [docs, setDocs] = useState<DocsIndexItem[]>([]);
   const [health, setHealth] = useState<BackendHealth | null>(null);
   const [architecture, setArchitecture] = useState<ArchitectureManifest | null>(null);
   const [activeCategory, setActiveCategory] = useState<DocsIndexItem['category'] | 'all'>('all');
+  const [activeDocPath, setActiveDocPath] = useState('');
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
 
@@ -28,6 +32,11 @@ export const KnowledgeBaseView: React.FC = () => {
       return categoryMatch && queryMatch;
     });
   }, [activeCategory, docs, query]);
+
+  const activeDoc = useMemo(
+    () => docs.find(item => item.path === activeDocPath) || filteredDocs[0] || null,
+    [activeDocPath, docs, filteredDocs]
+  );
 
   const categoryCounts = useMemo(() => docs.reduce<Record<string, number>>((acc, item) => {
     acc[item.category] = (acc[item.category] || 0) + 1;
@@ -44,6 +53,7 @@ export const KnowledgeBaseView: React.FC = () => {
       setHealth(nextHealth);
       setDocs(nextDocs);
       setArchitecture(nextArchitecture);
+      setActiveDocPath(current => current || nextDocs[0]?.path || '');
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -58,89 +68,124 @@ export const KnowledgeBaseView: React.FC = () => {
   }, []);
 
   return (
-    <div className="h-full overflow-y-auto custom-scrollbar bg-slate-900/20">
-      <div className="max-w-7xl mx-auto p-6 lg:p-8 space-y-6">
-        <section className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-200 text-xs font-bold mb-3">
-              <BookOpen size={14} /> Docs Library
-            </div>
-            <h2 className="text-2xl font-bold flex items-center gap-3">
-              <BookOpen className="text-cyan-300" /> 文档库与架构索引
-            </h2>
-            <p className="text-sm text-slate-500 mt-2 max-w-3xl">
-              文档库独立于前端和后端：产品方案、提示词工程知识、资产包规格和实施计划都由本地 API 扫描索引。
-            </p>
-          </div>
-          <button onClick={refresh} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-bold">
-            <RefreshCw size={16} /> 刷新索引
-          </button>
+    <div className="h-full overflow-y-auto custom-scrollbar bg-zinc-950">
+      <PageHeader
+        eyebrow="Knowledge Index"
+        title="知识库"
+        description="把产品方案、资产规格、提示词工程资料和实施计划收束成可检索索引，服务资产构建和提示词优化。"
+        actions={
+          <>
+            <StatusPill status={health?.ok ? 'online' : 'offline'} />
+            <Button onClick={refresh} icon={<RefreshCw size={16} />}>刷新索引</Button>
+          </>
+        }
+      />
+
+      <div className="mx-auto max-w-7xl space-y-5 p-4 lg:p-5">
+        <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <MetricCard icon={<Server size={16} />} label="后端 API" value={health?.ok ? '已连接' : '离线'} tone={health?.ok ? 'good' : 'warn'} detail={error || `version=${health?.version || 'unknown'}`} />
+          <MetricCard icon={<BookOpen size={16} />} label="文档索引" value={`${docs.length || health?.docsCount || 0}`} detail="docs/ Markdown" />
+          <MetricCard icon={<Database size={16} />} label="State 目录" value={health?.dataDirReady ? 'ready' : 'unknown'} tone={health?.dataDirReady ? 'good' : 'neutral'} detail="本地 JSON state" />
+          <MetricCard icon={<FileText size={16} />} label="当前结果" value={`${filteredDocs.length}`} detail={activeCategory === 'all' ? '全部分类' : categories[activeCategory]} />
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-          <StatusCard icon={<Server size={18} />} label="后端 API" value={health?.ok ? '已连接' : '离线'} tone={health?.ok ? 'good' : 'warn'} detail={error || `version=${health?.version || 'unknown'}`} />
-          <StatusCard icon={<BookOpen size={18} />} label="文档总数" value={`${docs.length || health?.docsCount || 0}`} tone="neutral" detail="Markdown under docs/" />
-          <StatusCard icon={<Database size={18} />} label="数据目录" value={health?.dataDirReady ? 'ready' : 'unknown'} tone={health?.dataDirReady ? 'good' : 'neutral'} detail="runtime JSON ignored by git" />
-          <StatusCard icon={<FileText size={18} />} label="当前筛选" value={activeCategory === 'all' ? '全部' : categories[activeCategory]} tone="neutral" detail={`${filteredDocs.length} matches`} />
-        </section>
-
-        <section className="grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-6">
-          <aside className="space-y-4">
-            <Panel title="分类" icon={<BookOpen size={18} className="text-cyan-300" />}>
-              <div className="space-y-2">
-                <button onClick={() => setActiveCategory('all')} className={`w-full text-left px-3 py-2 rounded-lg text-sm border ${activeCategory === 'all' ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'}`}>
-                  全部 · {docs.length}
-                </button>
-                {(Object.keys(categories) as DocsIndexItem['category'][]).map(category => (
-                  <button key={category} onClick={() => setActiveCategory(category)} className={`w-full text-left px-3 py-2 rounded-lg text-sm border ${activeCategory === category ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-bold' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'}`}>
-                    {categories[category]} · {categoryCounts[category] || 0}
+        <section className="grid grid-cols-1 gap-5 xl:grid-cols-[240px_minmax(0,1fr)_360px]">
+          <Panel title="分类索引" icon={<BookOpen size={16} className="text-zinc-400" />}>
+            <div className="space-y-2">
+              {categoryOrder.map(category => {
+                const label = category === 'all' ? '全部' : categories[category];
+                const count = category === 'all' ? docs.length : categoryCounts[category] || 0;
+                const active = activeCategory === category;
+                return (
+                  <button
+                    key={category}
+                    onClick={() => setActiveCategory(category)}
+                    className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors ${active ? 'border-teal-800 bg-teal-950/40 text-teal-100' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-700 hover:text-zinc-100'}`}
+                  >
+                    <span>{label}</span>
+                    <span className="text-xs text-zinc-500">{count}</span>
                   </button>
-                ))}
-              </div>
-            </Panel>
+                );
+              })}
+            </div>
 
             {architecture && (
-              <Panel title="运行边界" icon={<Server size={18} className="text-emerald-300" />}>
-                <div className="space-y-3">
-                  <InfoBlock label="frontend" value={architecture.stack.frontend} />
-                  <InfoBlock label="backend" value={architecture.stack.backend} />
-                  <InfoBlock label="docs" value={architecture.stack.docs} />
-                  <InfoBlock label="storage" value={architecture.stack.storage} />
-                </div>
-              </Panel>
-            )}
-          </aside>
-
-          <section className="space-y-4">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm outline-none focus:border-cyan-400"
-              placeholder="搜索标题、摘要或路径..."
-            />
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {filteredDocs.map(item => (
-                <article key={item.path} className="bg-slate-950 border border-slate-800 rounded-xl p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wider text-cyan-300 font-bold">{categories[item.category]}</div>
-                      <h3 className="text-base font-bold text-slate-100 mt-1">{item.title}</h3>
-                    </div>
-                    <span className="text-[10px] text-slate-500 shrink-0">{new Date(item.updatedAt).toLocaleDateString()}</span>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed mt-3 line-clamp-4">{item.summary}</p>
-                  <div className="mt-4 text-[11px] text-slate-500 bg-slate-900 border border-slate-800 rounded-lg p-2 break-all">{item.path}</div>
-                </article>
-              ))}
-            </div>
-
-            {filteredDocs.length === 0 && (
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-10 text-center text-slate-500">
-                暂无匹配文档。确认后端已启动，或调整分类和搜索词。
+              <div className="mt-4 space-y-2 border-t border-zinc-900 pt-4">
+                <InfoBlock label="frontend" value={architecture.stack.frontend} />
+                <InfoBlock label="backend" value={architecture.stack.backend} />
+                <InfoBlock label="storage" value={architecture.stack.storage} />
               </div>
             )}
-          </section>
+          </Panel>
+
+          <Panel
+            title="文档列表"
+            icon={<FileText size={16} className="text-zinc-400" />}
+            actions={<Badge tone="muted">{filteredDocs.length} items</Badge>}
+          >
+            <div className="relative mb-3">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="field-input pl-9"
+                placeholder="搜索标题、摘要或路径..."
+              />
+            </div>
+
+            {filteredDocs.length === 0 ? (
+              <EmptyState title="没有匹配文档" description="确认后端已启动，或调整分类与关键词。" />
+            ) : (
+              <div className="overflow-hidden rounded-lg border border-zinc-800">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="border-b border-zinc-900 bg-zinc-950 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                    <tr>
+                      <th className="px-3 py-2 font-bold">文档</th>
+                      <th className="px-3 py-2 font-bold">分类</th>
+                      <th className="px-3 py-2 font-bold">更新</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-900">
+                    {filteredDocs.map(item => (
+                      <tr
+                        key={item.path}
+                        onClick={() => setActiveDocPath(item.path)}
+                        className={`cursor-pointer transition-colors hover:bg-zinc-900/60 ${activeDoc?.path === item.path ? 'bg-teal-950/20' : ''}`}
+                      >
+                        <td className="max-w-[520px] px-3 py-3">
+                          <div className="truncate font-semibold text-zinc-100">{item.title}</div>
+                          <div className="mt-1 line-clamp-1 text-xs text-zinc-500">{item.summary}</div>
+                        </td>
+                        <td className="px-3 py-3"><Badge tone={item.category === 'asset-spec' ? 'accent' : 'neutral'}>{categories[item.category]}</Badge></td>
+                        <td className="whitespace-nowrap px-3 py-3 text-xs text-zinc-500">{new Date(item.updatedAt).toLocaleDateString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="文档检查器" icon={<FileText size={16} className="text-zinc-400" />}>
+            {activeDoc ? (
+              <div className="space-y-4">
+                <div>
+                  <Badge tone={activeDoc.category === 'asset-spec' ? 'accent' : 'neutral'}>{categories[activeDoc.category]}</Badge>
+                  <h3 className="mt-3 text-base font-semibold text-zinc-100">{activeDoc.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-500">{activeDoc.summary || '暂无摘要。'}</p>
+                </div>
+                <InfoBlock label="路径" value={activeDoc.path} />
+                <InfoBlock label="更新时间" value={new Date(activeDoc.updatedAt).toLocaleString()} />
+                <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3 text-xs leading-relaxed text-zinc-400">
+                  {activeDoc.category === 'asset-spec'
+                    ? '建议把这里的资产结构要求同步到构建器和资产编辑器，作为保存前完整度检查。'
+                    : '可作为提示词优化时的参考资料来源，后续可扩展为一键转 Reference 资产。'}
+                </div>
+              </div>
+            ) : (
+              <EmptyState title="选择一份文档" description="点击左侧列表中的文档查看摘要、路径和用途。" />
+            )}
+          </Panel>
         </section>
       </div>
     </div>

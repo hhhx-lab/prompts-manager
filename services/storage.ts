@@ -10,8 +10,14 @@ export const ASSET_GRAPH_STORAGE_KEY = 'promptmaster_asset_graph_v1';
 export const ASSET_PATCHES_STORAGE_KEY = 'promptmaster_asset_patches_v1';
 export const CAPABILITY_PACKS_STORAGE_KEY = 'promptmaster_capability_packs_v1';
 export const MARKET_ITEMS_STORAGE_KEY = 'promptmaster_market_items_v1';
+export const REMOTE_MARKET_ITEMS_STORAGE_KEY = 'promptmaster_remote_market_items_v1';
+export const MARKET_ACCOUNTS_STORAGE_KEY = 'promptmaster_market_accounts_v1';
+export const MARKET_ORDERS_STORAGE_KEY = 'promptmaster_market_orders_v1';
 export const EVALUATOR_RESULTS_STORAGE_KEY = 'promptmaster_evaluator_results_v1';
 export const BENCHMARK_RUNS_STORAGE_KEY = 'promptmaster_benchmark_runs_v1';
+export const TEAM_SPACES_STORAGE_KEY = 'promptmaster_team_spaces_v1';
+export const APPROVAL_REQUESTS_STORAGE_KEY = 'promptmaster_approval_requests_v1';
+export const ONLINE_EXPERIMENTS_STORAGE_KEY = 'promptmaster_online_experiments_v1';
 
 export const readJson = <T>(key: string, fallback: T): T => {
   try {

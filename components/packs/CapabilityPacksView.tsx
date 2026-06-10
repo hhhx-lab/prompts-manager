@@ -22,8 +22,6 @@ interface CapabilityPacksViewProps {
   onOpenBuilder: (assetType: AssetType, pack: CapabilityPack, slot: CapabilityPackSlot) => void;
 }
 
-const starterInput = '面向合同风险审查：组合 Prompt、Reference、Policy、Evaluator 和可选 Workflow，形成可一键注入的审查能力包。';
-
 export const CapabilityPacksView: React.FC<CapabilityPacksViewProps> = ({
   assets,
   packs,
@@ -33,7 +31,7 @@ export const CapabilityPacksView: React.FC<CapabilityPacksViewProps> = ({
   onImportAssets,
   onOpenBuilder
 }) => {
-  const [draftInput, setDraftInput] = useState(starterInput);
+  const [draftInput, setDraftInput] = useState('');
   const [activePackId, setActivePackId] = useState(packs[0]?.id || '');
   const [notice, setNotice] = useState('');
 

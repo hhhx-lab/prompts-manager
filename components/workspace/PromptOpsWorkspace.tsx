@@ -12,16 +12,17 @@ import {
   PromptRun,
   RunLabRunResult,
   ScenarioType,
+  StyleMode,
   TaskModel
 } from '../../types';
 import {
   analyzeTaskRemote,
   applyAssetPatchRemote,
-  compilePromptRemote,
   diagnoseFeedbackRemote,
   getCapabilityCheck,
   runPromptRemote
 } from '../../services/apiClient';
+import { optimizePrompt } from '../../modelService';
 import { assetBuilderDraftToPromptAsset, buildLocalAssetDraft } from '../../services/assetDrafts';
 import { analyzeTaskLocally } from '../../services/taskAnalysis';
 import { compilePrompt } from '../../services/promptCompiler';
@@ -44,8 +45,6 @@ interface PromptOpsWorkspaceProps {
   onOpenBuilder: () => void;
 }
 
-const starterInput = '你是一名严谨的合同风险审查助手。请阅读我提供的合同条款，输出风险等级、风险说明、依据条款、建议修改方向和需要我补充确认的问题。';
-
 export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
   assets,
   directions,
@@ -54,15 +53,18 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
   onOpenLibrary,
   onOpenBuilder
 }) => {
-  const [input, setInput] = useState(starterInput);
+  const [input, setInput] = useState('');
   const [referenceFiles, setReferenceFiles] = useState<Attachment[]>([]);
-  const [testInput, setTestInput] = useState('请用一个合同风险审查任务做测试，输出风险清单和待确认问题。');
+  const [testInput, setTestInput] = useState('');
   const [taskModel, setTaskModel] = useState<TaskModel | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [compilation, setCompilation] = useState<PromptCompilation | null>(null);
   const [editablePrompt, setEditablePrompt] = useState('');
+  const [lastGeneratedPrompt, setLastGeneratedPrompt] = useState('');
+  const [optimizationHighlights, setOptimizationHighlights] = useState<string[]>([]);
+  const [optimizationSuggestions, setOptimizationSuggestions] = useState<string[]>([]);
   const [runResult, setRunResult] = useState<RunLabRunResult | null>(null);
-  const [feedbackNote, setFeedbackNote] = useState('用户要求用表格输出，并删除了未提供来源的内容。');
+  const [feedbackNote, setFeedbackNote] = useState('');
   const [patches, setPatches] = useState<AssetPatch[]>([]);
   const [capability, setCapability] = useState<CapabilityCheck | null>(null);
   const [busy, setBusy] = useState('');
@@ -79,17 +81,17 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
     .map(file => `参考文件 ${file.name}:\n${file.textContent}`)
     .join('\n\n'), [referenceFiles]);
 
-  const promptSource = useMemo(() => [
+  const analysisSource = useMemo(() => [
     input,
     referenceContext ? `\n\n---\n本轮参考资料:\n${referenceContext}` : ''
   ].join(''), [input, referenceContext]);
 
   const recommendedAssets = useMemo(() => recommendAssets(
     assets,
-    [promptSource, taskModel?.goal, taskModel?.suggestedAssetTypes.join(' ')].filter(Boolean).join(' '),
+    [analysisSource, taskModel?.goal, taskModel?.suggestedAssetTypes.join(' ')].filter(Boolean).join(' '),
     directions.map(direction => direction.name),
     10
-  ), [assets, directions, promptSource, taskModel]);
+  ), [assets, directions, analysisSource, taskModel]);
 
   const selectedAssets = assets.filter(asset => selectedAssetIds.includes(asset.id));
   const activePrompt = editablePrompt || compilation?.compiledPrompt || '';
@@ -106,7 +108,7 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
       const assetIds = Array.isArray(handoff.assetIds) ? handoff.assetIds : [];
       if (assetIds.length > 0) {
         setSelectedAssetIds(previous => Array.from(new Set([...assetIds, ...previous])).slice(0, 8));
-        setNotice(`已使用能力包“${handoff.packName || '未命名能力包'}”，关联资产已加入本轮编译。`);
+        setNotice(`已使用能力包“${handoff.packName || '未命名能力包'}”，关联资产已加入本轮提示词优化。`);
       }
     } finally {
       sessionStorage.removeItem('promptmaster_workspace_pack_use_v1');
@@ -117,11 +119,11 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
     setBusy('analyze');
     setNotice('');
     try {
-      const remote = await analyzeTaskRemote({ input: promptSource, assets, directions, scenario });
+      const remote = await analyzeTaskRemote({ input: analysisSource, assets, directions, scenario });
       setTaskModel(remote);
       saveTaskModel(remote);
     } catch {
-      const local = analyzeTaskLocally(promptSource, assets, directions, scenario);
+      const local = analyzeTaskLocally(analysisSource, assets, directions, scenario);
       setTaskModel(local);
       saveTaskModel(local);
     } finally {
@@ -129,40 +131,75 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
     }
   };
 
-  const compileFromSource = async (sourceText: string) => {
-    const task = taskModel && sourceText === promptSource ? taskModel : analyzeTaskLocally(sourceText, assets, directions, scenario);
-    if (!taskModel) {
+  const optimizeFromSource = async (
+    sourceText: string,
+    options: { isRefinement?: boolean; previousVersion?: string } = {}
+  ) => {
+    const task = taskModel && sourceText === input ? taskModel : analyzeTaskLocally([sourceText, referenceContext].filter(Boolean).join('\n\n'), assets, directions, scenario);
+    if (!taskModel || sourceText !== input) {
       setTaskModel(task);
       saveTaskModel(task);
     }
-    setBusy('compile');
+    setBusy('optimize');
     setNotice('');
     try {
-      const remote = await compilePromptRemote({ task, selectedAssets, directions, mode: 'strict' });
-      setCompilation(remote);
-      setEditablePrompt(remote.compiledPrompt);
-      savePromptCompilation(remote);
-    } catch {
-      const local = compilePrompt(task, selectedAssets, directions, 'strict');
-      setCompilation(local);
-      setEditablePrompt(local.compiledPrompt);
-      savePromptCompilation(local);
+      const optimizedData = await optimizePrompt(sourceText, {
+        scenario,
+        style: StyleMode.BUSINESS,
+        useThinking: true,
+        useSearch: false,
+        attachments: referenceFiles.map(file => ({
+          data: file.data,
+          mimeType: file.mimeType,
+          textContent: file.textContent
+        })),
+        isRefinement: Boolean(options.isRefinement),
+        previousVersion: options.previousVersion,
+        selectedAssets,
+        recommendedAssets,
+        directions,
+        allowLocalFallback: false
+      });
+      const baseCompilation = compilePrompt(task, selectedAssets, directions, 'strict');
+      const nextCompilation: PromptCompilation = {
+        ...baseCompilation,
+        compiledPrompt: optimizedData.optimized,
+        warnings: baseCompilation.warnings
+      };
+      setCompilation(nextCompilation);
+      setEditablePrompt(nextCompilation.compiledPrompt);
+      setLastGeneratedPrompt(nextCompilation.compiledPrompt);
+      setOptimizationHighlights(optimizedData.highlights);
+      setOptimizationSuggestions(optimizedData.suggestions);
+      savePromptCompilation(nextCompilation);
+      setNotice(options.isRefinement
+        ? '已基于你当前编辑后的版本继续优化，并尽量保留人工修改意图。'
+        : '已生成优化后的提示词，可以继续手动编辑或迭代下一版。');
+    } catch (error) {
+      setOptimizationHighlights([]);
+      setOptimizationSuggestions([]);
+      setNotice(`模型优化失败：${error instanceof Error ? error.message : String(error)}。请检查 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL 或网络；当前未生成本地降级草稿。`);
     } finally {
       setBusy('');
     }
   };
 
-  const handleCompile = async () => compileFromSource(promptSource);
+  const handleOptimize = async () => optimizeFromSource(input);
 
   const handleContinueIteration = async () => {
     if (!activePrompt.trim()) return;
-    setInput(activePrompt);
-    setNotice('已将当前编辑版本作为下一版优化源，继续生成新版本。');
-    await compileFromSource(activePrompt);
+    await optimizeFromSource(activePrompt, {
+      isRefinement: true,
+      previousVersion: lastGeneratedPrompt || compilation?.compiledPrompt || input
+    });
   };
 
   const handleRun = async () => {
-    const compiled = compilation || compilePrompt(taskModel || analyzeTaskLocally(promptSource, assets, directions, scenario), selectedAssets, directions, 'strict');
+    if (!activePrompt.trim()) {
+      setNotice('请先优化出一版提示词，再进入运行/预览。');
+      return;
+    }
+    const compiled = compilation || compilePrompt(taskModel || analyzeTaskLocally(analysisSource, assets, directions, scenario), selectedAssets, directions, 'strict');
     if (!compilation) {
       setCompilation(compiled);
       setEditablePrompt(compiled.compiledPrompt);
@@ -174,6 +211,8 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
       setRunResult(result);
       savePromptRun(toPromptRun(result, []));
       setNotice(result.message);
+    } catch (error) {
+      setNotice(`运行失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBusy('');
     }
@@ -229,13 +268,13 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
   const handleCopy = async () => {
     if (!activePrompt) return;
     await navigator.clipboard.writeText(activePrompt);
-    const event = createEvent('copy_result', '用户复制了编译后的 Prompt', { length: activePrompt.length });
+    const event = createEvent('copy_result', '用户复制了优化后的提示词', { length: activePrompt.length });
     saveFeedbackEvents([event]);
     setNotice('已复制，并记录 copy_result 反馈事件。');
   };
 
   const handleRecordEdit = () => {
-    const event = createEvent('manual_edit', '用户手动编辑了编译结果', { length: editablePrompt.length });
+    const event = createEvent('manual_edit', '用户手动编辑了优化结果', { length: editablePrompt.length });
     saveFeedbackEvents([event]);
     setNotice('已记录 manual_edit 反馈事件。');
   };
@@ -282,14 +321,18 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
         : [...previous, assetId]);
   };
 
-  const capabilityStatus = capability?.model.configured ? 'connected' : 'context_only';
+  const capabilityStatus = capability?.model.status === 'connected'
+    ? 'connected'
+    : capability?.model.configured
+      ? 'testable'
+      : 'context_only';
 
   return (
     <div className="h-full overflow-y-auto bg-zinc-950 custom-scrollbar">
       <PageHeader
         eyebrow="PromptOps Workbench"
         title="工作台"
-        description="粘贴你的提示词内容，按需插入资产和参考资料，编译后继续迭代到满意版本。"
+        description="粘贴你原本准备发给 AI 的提示词，按需插入资产和参考资料，生成更清晰、精准、可执行的优化版提示词。"
         actions={
           <>
             <StatusPill status={capabilityStatus} />
@@ -301,17 +344,17 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
 
       <div className="grid min-h-[calc(100vh-112px)] grid-cols-1 gap-4 p-4 xl:grid-cols-[320px_minmax(0,1fr)_340px]">
         <aside className="space-y-4">
-          <Panel title="提示词内容与测试输入" eyebrow="Intake" actions={<Badge tone="neutral">{scenario}</Badge>}>
+          <Panel title="原始提示词与测试输入" eyebrow="Intake" actions={<Badge tone="neutral">{scenario}</Badge>}>
             <div className="space-y-4">
               <Field label="原始提示词内容">
-                <textarea value={input} onChange={(event) => setInput(event.target.value)} className="field-input min-h-36 resize-y" />
+                <textarea value={input} onChange={(event) => setInput(event.target.value)} className="field-input min-h-36 resize-y" placeholder="粘贴你原本准备发给 AI 的提示词。" />
               </Field>
               <Field label="Run Lab 测试输入">
-                <textarea value={testInput} onChange={(event) => setTestInput(event.target.value)} className="field-input min-h-24 resize-y" />
+                <textarea value={testInput} onChange={(event) => setTestInput(event.target.value)} className="field-input min-h-24 resize-y" placeholder="可选：填写一段测试输入，用来运行优化后的提示词。" />
               </Field>
               <div className="grid grid-cols-2 gap-2">
-                <Button onClick={handleAnalyze} disabled={busy === 'analyze'} icon={<Wand2 size={15} />}>分析</Button>
-                <Button variant="primary" onClick={handleCompile} disabled={busy === 'compile'} icon={<FileText size={15} />}>编译</Button>
+                <Button onClick={handleAnalyze} disabled={busy === 'analyze'} icon={<FileText size={15} />}>分析提示词</Button>
+                <Button variant="primary" onClick={handleOptimize} disabled={busy === 'optimize'} icon={<Wand2 size={15} />}>优化提示词</Button>
               </div>
             </div>
           </Panel>
@@ -344,7 +387,21 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
             </div>
           </Panel>
 
-          <Panel title="任务理解卡" eyebrow="TaskModel">
+          <Panel title="优化 Agent" eyebrow="Agent">
+            <div className="space-y-2 text-xs leading-relaxed text-zinc-400">
+              <div className="rounded-md border border-teal-900/60 bg-teal-950/20 px-3 py-2 text-teal-100">
+                内部提示词工程 Agent 会先诊断左侧原始提示词，再融合你勾选的资产和参考文件，输出可直接发给其他 AI 的优化版提示词。
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Badge tone="accent">意图澄清</Badge>
+                <Badge tone="accent">结构重构</Badge>
+                <Badge tone="accent">资产融合</Badge>
+                <Badge tone="accent">质量门</Badge>
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="提示词理解卡" eyebrow="Diagnosis">
             {taskModel ? (
               <div className="space-y-3 text-xs">
                 <MetricRow label="目标" value={taskModel.goal} />
@@ -352,20 +409,20 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
                 <MetricRow label="风险" value={`${taskModel.riskLevel} / ${(taskModel.confidence * 100).toFixed(0)}%`} />
                 <MetricRow label="缺口" value={taskModel.missingInfo.join('；') || '暂无'} />
               </div>
-            ) : <EmptyState title="尚未分析任务" description="点击“分析”后会生成目标、受众、风险和推荐资产类型。" />}
+            ) : <EmptyState title="尚未分析提示词" description="点击“分析提示词”后会生成目标、受众、风险和推荐资产类型。" />}
           </Panel>
         </aside>
 
         <main className="min-w-0 space-y-4">
           <Panel
-            title="PromptIR 与可编辑结果"
-            eyebrow="Compiler"
+            title="优化后的提示词"
+            eyebrow="Optimizer"
             actions={
               <div className="flex flex-wrap gap-2">
                 <Button onClick={handleCopy} disabled={!activePrompt} icon={<Clipboard size={15} />}>复制</Button>
                 <Button onClick={handleRecordEdit} disabled={!activePrompt} icon={<Save size={15} />}>记录编辑</Button>
-                <Button onClick={handleContinueIteration} disabled={!activePrompt || busy === 'compile'} icon={<GitBranch size={15} />}>继续优化新版</Button>
-                <Button variant="primary" onClick={handleRun} disabled={!input.trim() || busy === 'run'} icon={<Play size={15} />}>运行/预览</Button>
+                <Button onClick={handleContinueIteration} disabled={!activePrompt || busy === 'optimize'} icon={<GitBranch size={15} />}>继续优化新版</Button>
+                <Button variant="primary" onClick={handleRun} disabled={!activePrompt || busy === 'run'} icon={<Play size={15} />}>运行/预览</Button>
               </div>
             }
           >
@@ -381,6 +438,26 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
                   <MetricCard label="参考文件" value={`${referenceFiles.filter(file => file.textContent).length}`} detail="已解析文本会进入本轮上下文" />
                   <MetricCard label="版本" value={`V${promptCompilations.length + 1}`} detail={new Date(compilation.createdAt).toLocaleString()} />
                 </div>
+                {(optimizationHighlights.length > 0 || optimizationSuggestions.length > 0) && (
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {optimizationHighlights.length > 0 && (
+                      <div className="rounded-md border border-teal-900/60 bg-teal-950/20 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-teal-300">优化亮点</div>
+                        <ul className="mt-2 space-y-1 text-xs leading-relaxed text-teal-50/90">
+                          {optimizationHighlights.slice(0, 5).map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {optimizationSuggestions.length > 0 && (
+                      <div className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-500">继续改进建议</div>
+                        <ul className="mt-2 space-y-1 text-xs leading-relaxed text-zinc-300">
+                          {optimizationSuggestions.slice(0, 5).map((item, index) => <li key={`${item}-${index}`}>- {item}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <textarea
                   value={editablePrompt}
                   onChange={(event) => setEditablePrompt(event.target.value)}
@@ -389,9 +466,9 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
               </div>
             ) : (
               <EmptyState
-                title="还没有编译结果"
-                description="选择或跳过资产后点击“编译”，系统会生成可追溯 PromptIR，并把资产绑定写进结果。"
-                action={<Button variant="primary" onClick={handleCompile}>开始编译</Button>}
+                title="还没有优化结果"
+                description="选择或跳过资产后点击“开始优化”，系统会把左侧原始提示词改写成更清晰、精准、可执行的版本。"
+                action={<Button variant="primary" onClick={handleOptimize}>开始优化</Button>}
               />
             )}
           </Panel>
@@ -435,7 +512,7 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
 
           <Panel title="反馈与补丁队列" eyebrow="Evolution" actions={<Button onClick={handleDiagnose} disabled={busy === 'diagnose'} icon={<RefreshCw size={14} />}>诊断</Button>}>
             <Field label="反馈说明">
-              <textarea value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} className="field-input min-h-24 resize-y" />
+              <textarea value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} className="field-input min-h-24 resize-y" placeholder="可选：描述你对当前优化结果的修改意见、偏好或问题。" />
             </Field>
             <div className="mt-3 space-y-2">
               {patches.map(patch => (
@@ -471,7 +548,7 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
                   onClick={() => {
                     setCompilation(item);
                     setEditablePrompt(item.compiledPrompt);
-                    setInput(item.compiledPrompt);
+                    setLastGeneratedPrompt(item.compiledPrompt);
                     setNotice(`已切回 V${promptCompilations.length - index}，可继续生成下一版。`);
                   }}
                   className="w-full rounded-md border border-zinc-800 bg-zinc-950 p-3 text-left hover:border-zinc-700"
@@ -483,7 +560,7 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
                   <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{item.compiledPrompt}</div>
                 </button>
               ))}
-              {promptCompilations.length === 0 && <EmptyState title="暂无版本" description="每次编译都会保存为可回看的提示词版本。" />}
+              {promptCompilations.length === 0 && <EmptyState title="暂无版本" description="每次优化都会保存为可回看的提示词版本。" />}
             </div>
           </Panel>
 

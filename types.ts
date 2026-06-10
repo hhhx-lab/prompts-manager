@@ -348,6 +348,17 @@ export interface MarketItemPayload {
   assets?: PromptAsset[];
 }
 
+export type MarketAuditStatus = 'draft' | 'submitted' | 'approved' | 'rejected';
+export type MarketPaymentMode = 'free' | 'paid_placeholder';
+
+export interface MarketReview {
+  id: string;
+  author: string;
+  rating: number;
+  comment: string;
+  createdAt: number;
+}
+
 export interface MarketItem {
   id: string;
   itemType: MarketItemType;
@@ -364,6 +375,11 @@ export interface MarketItem {
   safetyNotes: string[];
   downloads: number;
   rating: number;
+  auditStatus?: MarketAuditStatus;
+  reviews?: MarketReview[];
+  paymentMode?: MarketPaymentMode;
+  priceCents?: number;
+  license?: string;
   version: number;
   source: 'local' | 'import' | 'remote';
   createdAt: number;
@@ -569,6 +585,15 @@ export interface RunLabRunResult {
   createdAt: number;
 }
 
+export interface RunLabMultiRunResult {
+  id: string;
+  provider: string;
+  models: string[];
+  runs: RunLabRunResult[];
+  summary: string;
+  createdAt: number;
+}
+
 export interface EvaluatorResult {
   id: string;
   runId: string;
@@ -578,8 +603,105 @@ export interface EvaluatorResult {
   passThreshold: string;
   scores: Record<string, number>;
   summary: string;
+  issues?: string[];
+  recommendations?: string[];
   unavailableReason?: string;
   createdAt: number;
+}
+
+export interface BuilderChatResponse {
+  ok: boolean;
+  status: 'completed' | 'missing_provider_config' | 'failed';
+  provider: string;
+  model: string;
+  reply: string;
+  suggestedAssetType?: AssetType;
+  draft?: AssetBuilderDraft;
+  missingFields?: string[];
+  suggestedActions?: string[];
+  message: string;
+}
+
+export interface ToolAdapterSummary {
+  id: string;
+  label: string;
+  assetTypes: AssetType[];
+  capability: string;
+  inputHint: string;
+  risk: 'low' | 'medium' | 'high';
+  enabled?: boolean;
+}
+
+export interface ToolExecutionResult {
+  ok: boolean;
+  status: 'completed' | 'blocked' | 'requires_confirmation' | 'adapter_missing' | 'failed';
+  adapterId?: string;
+  mode: CapabilityStatus | 'dry_run';
+  message: string;
+  output?: unknown;
+  dryRun?: unknown;
+  riskNotes: string[];
+  startedAt: number;
+  completedAt: number;
+}
+
+export type TeamRole = 'owner' | 'admin' | 'editor' | 'viewer' | 'reviewer';
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: TeamRole;
+  status: 'active' | 'invited' | 'disabled';
+  joinedAt: number;
+}
+
+export interface TeamSpace {
+  id: string;
+  name: string;
+  summary: string;
+  members: TeamMember[];
+  assetIds: string[];
+  packIds: string[];
+  internalMarketEnabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ApprovalRequest {
+  id: string;
+  teamId: string;
+  targetKind: 'asset' | 'capability_pack' | 'market_item';
+  targetId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  requestedBy: string;
+  reviewedBy?: string;
+  comment?: string;
+  createdAt: number;
+  reviewedAt?: number;
+}
+
+export interface OnlineExperiment {
+  id: string;
+  name: string;
+  status: 'draft' | 'running' | 'paused' | 'completed';
+  variants: {
+    id: string;
+    name: string;
+    promptId?: string;
+    compilationId?: string;
+    weight: number;
+  }[];
+  metrics: string[];
+  events: {
+    id: string;
+    variantId: string;
+    metric: string;
+    value: number;
+    timestamp: number;
+  }[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface BenchmarkRun {
@@ -638,6 +760,7 @@ export interface CapabilityProviderStatus {
   message: string;
   requiredEnvVars: string[];
   optionalEnvVars: string[];
+  tlsRejectUnauthorized?: boolean;
 }
 
 export interface RuntimeStateStatus {
@@ -677,6 +800,7 @@ export interface ExecutionGateStatus {
   modelExecutionAllowed: boolean;
   toolExecutionAllowed: boolean;
   requiresExplicitConfirmation: boolean;
+  adapterAllowlist?: string[];
   missingConfiguration: string[];
   message: string;
 }
@@ -688,9 +812,7 @@ export interface CapabilityCheck {
     apiBaseUrl?: string;
     state?: RuntimeStateStatus;
   };
-  model: CapabilityProviderStatus & {
-    provider: 'gemini';
-  };
+  model: CapabilityProviderStatus;
   assets: {
     mcp: CapabilityStatus;
     sdk: CapabilityStatus;
@@ -704,6 +826,17 @@ export interface CapabilityCheck {
     sdk: ToolingRuntimeStatus;
     tool: ToolingRuntimeStatus;
     connector: ToolingRuntimeStatus;
+  };
+  adapters?: ToolAdapterSummary[];
+  collaboration?: {
+    status: CapabilityStatus;
+    collections: string[];
+    message: string;
+  };
+  experiments?: {
+    status: CapabilityStatus;
+    collections: string[];
+    message: string;
   };
   execution?: ExecutionGateStatus;
   timestamp: number;

@@ -456,7 +456,7 @@ filesystem
       security: ['限制在 workspace', '敏感文件需确认'],
       evaluations: ['能否先搜索再读取目标文件']
     } satisfies McpAssetSchema,
-    examples: ['任务：找出环境变量读取位置\n工具：filesystem.search_files(query="GEMINI_API_KEY")']
+    examples: ['任务：找出环境变量读取位置\n工具：filesystem.search_files(query="MODEL_API_KEY")']
   }),
   starterAsset(7, {
     id: 'starter-sdk-openai-responses',
@@ -2656,7 +2656,7 @@ Queried: 2026-05-28`,
       ['当前目录是目标仓库', 'ripgrep 可用'],
       ['无副作用'],
       ['无结果时放宽 pattern 或搜索文件名'],
-      ['rg "GEMINI_API_KEY" .']
+      ['rg "MODEL_API_KEY" .']
     ),
     examples: ['任务：找资产推荐逻辑\n工具：rg "recommendAssets" services App.tsx']
   }),
@@ -3124,7 +3124,7 @@ annotations:
       enforcement: ['输出 env 名称而非值', '写入 .env.local 时不提交', '提醒用户填真实 key'],
       escalation: ['需要远程权限时请求用户确认', '疑似密钥泄露时建议轮换'],
       refusalStyle: '不复述密钥，说明安全原因并给出安全替代配置。',
-      examples: ['GEMINI_API_KEY= 留空模板；真实值由用户本地填写。']
+      examples: ['MODEL_API_KEY= 留空模板；真实值由用户本地填写。']
     } satisfies PolicyAssetSchema,
     examples: ['任务：配置 OpenAI SDK\n输出：.env.example、服务端读取、前端代理边界']
   }),
