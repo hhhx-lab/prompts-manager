@@ -8,6 +8,7 @@ type ModelMessage = {
 };
 
 const DEFAULT_MODEL = ((import.meta as any).env?.VITE_LLM_MODEL || (import.meta as any).env?.VITE_MODEL_NAME || '') as string;
+const MAX_ASSET_CONTEXT_CHARS = 1800;
 
 export const optimizePrompt = async (
   input: string,
@@ -426,17 +427,17 @@ const buildDirectionInstruction = (directions: OptimizationDirection[], customDi
 };
 
 const buildAssetInstruction = (selectedAssets: PromptAsset[], recommendedAssets: PromptAsset[]) => {
-  const confirmed = selectedAssets.slice(0, 8);
+  const confirmed = selectedAssets.slice(0, 6);
   const recommended = recommendedAssets
     .filter(asset => !confirmed.some(selected => selected.id === asset.id))
-    .slice(0, 5);
+    .slice(0, 2);
   if (confirmed.length === 0 && recommended.length === 0) return '';
 
   const selectedBlock = confirmed.length
-    ? `\n【用户确认注入的资产】\n${confirmed.map((asset, index) => `## 资产 ${index + 1}\n${formatAssetForModel(asset)}`).join('\n\n')}`
+    ? `\n【用户确认注入的资产】\n${confirmed.map((asset, index) => `## 资产 ${index + 1}\n${formatAssetForOptimization(asset, true)}`).join('\n\n')}`
     : '';
   const recommendedBlock = recommended.length
-    ? `\n【系统推荐候选资产】\n这些资产只能作为弱参考：\n${recommended.map((asset, index) => `## 候选 ${index + 1}\n${formatAssetForModel(asset)}`).join('\n\n')}`
+    ? `\n【系统推荐候选资产】\n这些资产只能作为弱参考：\n${recommended.map((asset, index) => `## 候选 ${index + 1}\n${formatAssetForOptimization(asset, false)}`).join('\n\n')}`
     : '';
 
   return [
@@ -447,6 +448,13 @@ const buildAssetInstruction = (selectedAssets: PromptAsset[], recommendedAssets:
     selectedBlock,
     recommendedBlock
   ].join('\n');
+};
+
+const formatAssetForOptimization = (asset: PromptAsset, confirmed: boolean) => {
+  const formatted = formatAssetForModel(asset);
+  const maxChars = confirmed ? MAX_ASSET_CONTEXT_CHARS : 900;
+  if (formatted.length <= maxChars) return formatted;
+  return `${formatted.slice(0, maxChars)}\n...（已压缩，仅保留优化提示词所需的资产摘要；如需完整内容请让用户显式补充）`;
 };
 
 const parseJsonFromText = (text: string) => {

@@ -67,12 +67,13 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
   const [feedbackNote, setFeedbackNote] = useState('');
   const [patches, setPatches] = useState<AssetPatch[]>([]);
   const [capability, setCapability] = useState<CapabilityCheck | null>(null);
+  const [pendingIteration, setPendingIteration] = useState(false);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
 
   const { saveTaskModel } = useTaskModels();
   const { promptCompilations, savePromptCompilation } = usePromptCompilations();
-  const { promptRuns, savePromptRun } = usePromptRuns();
+  const { promptRuns, setPromptRuns, savePromptRun } = usePromptRuns();
   const { feedbackEvents, saveFeedbackEvents } = useFeedbackEvents();
   const { saveAssetPatches } = useAssetPatches();
 
@@ -108,6 +109,7 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
       const assetIds = Array.isArray(handoff.assetIds) ? handoff.assetIds : [];
       if (assetIds.length > 0) {
         setSelectedAssetIds(previous => Array.from(new Set([...assetIds, ...previous])).slice(0, 8));
+        setPendingIteration(false);
         setNotice(`已使用能力包“${handoff.packName || '未命名能力包'}”，关联资产已加入本轮提示词优化。`);
       }
     } finally {
@@ -169,12 +171,13 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
       setCompilation(nextCompilation);
       setEditablePrompt(nextCompilation.compiledPrompt);
       setLastGeneratedPrompt(nextCompilation.compiledPrompt);
+      setPendingIteration(false);
       setOptimizationHighlights(optimizedData.highlights);
       setOptimizationSuggestions(optimizedData.suggestions);
       savePromptCompilation(nextCompilation);
       setNotice(options.isRefinement
         ? '已基于你当前编辑后的版本继续优化，并尽量保留人工修改意图。'
-        : '已生成优化后的提示词，可以继续手动编辑或迭代下一版。');
+        : '已生成优化后的提示词。你可以手动编辑；如需下一版，需要点击“继续优化新版”并确认。');
     } catch (error) {
       setOptimizationHighlights([]);
       setOptimizationSuggestions([]);
@@ -188,10 +191,22 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
 
   const handleContinueIteration = async () => {
     if (!activePrompt.trim()) return;
+    setPendingIteration(true);
+    setNotice('继续优化会基于当前右侧内容生成下一版；请确认后再开始。');
+  };
+
+  const handleConfirmIteration = async () => {
+    if (!activePrompt.trim()) return;
+    setPendingIteration(false);
     await optimizeFromSource(activePrompt, {
       isRefinement: true,
       previousVersion: lastGeneratedPrompt || compilation?.compiledPrompt || input
     });
+  };
+
+  const handleCancelIteration = () => {
+    setPendingIteration(false);
+    setNotice('已取消继续优化，当前版本保持不变。');
   };
 
   const handleRun = async () => {
@@ -428,11 +443,6 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
           >
             {compilation ? (
               <div className="space-y-3">
-                {compilation.warnings.length > 0 && (
-                  <div className="rounded-md border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-100">
-                    {compilation.warnings.join('；')}
-                  </div>
-                )}
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                   <MetricCard label="注入资产" value={`${selectedAssets.length}`} detail={selectedAssets.length ? selectedAssets.map(asset => asset.title).slice(0, 2).join('、') : '本次未使用外部资产'} />
                   <MetricCard label="参考文件" value={`${referenceFiles.filter(file => file.textContent).length}`} detail="已解析文本会进入本轮上下文" />
@@ -456,6 +466,18 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
                         </ul>
                       </div>
                     )}
+                  </div>
+                )}
+                {pendingIteration && (
+                  <div className="rounded-md border border-amber-800/70 bg-amber-950/30 p-3">
+                    <div className="text-xs font-semibold text-amber-100">确认生成下一版？</div>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-100/75">
+                      系统会以当前右侧编辑内容作为输入，并尽量保留你的人工修改。取消后当前版本不会变化。
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button variant="primary" onClick={handleConfirmIteration} disabled={busy === 'optimize'} icon={<GitBranch size={14} />}>确认生成下一版</Button>
+                      <Button onClick={handleCancelIteration} disabled={busy === 'optimize'}>取消</Button>
+                    </div>
                   </div>
                 )}
                 <textarea
@@ -564,7 +586,11 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
             </div>
           </Panel>
 
-          <Panel title="最近运行" eyebrow="History">
+          <Panel
+            title="最近运行"
+            eyebrow="History"
+            actions={promptRuns.length > 0 ? <Button size="sm" onClick={() => setPromptRuns([])}>清空</Button> : undefined}
+          >
             <div className="space-y-2">
               {promptRuns.slice(0, 4).map(run => (
                 <div key={run.id} className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
@@ -573,6 +599,11 @@ export const PromptOpsWorkspace: React.FC<PromptOpsWorkspaceProps> = ({
                     <StatusPill status={run.status || 'completed'} />
                   </div>
                   <div className="mt-1 text-[11px] text-zinc-600">{new Date(run.createdAt).toLocaleString()}</div>
+                  {run.status === 'failed' && (
+                    <div className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-red-300/80">
+                      {run.error || '运行失败'}
+                    </div>
+                  )}
                 </div>
               ))}
               {promptRuns.length === 0 && <EmptyState title="暂无运行记录" description="点击运行/预览后会保存到后端 state。" />}

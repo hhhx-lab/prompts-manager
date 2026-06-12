@@ -40,7 +40,7 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
   const [notice, setNotice] = useState('');
   const [capability, setCapability] = useState<CapabilityCheck | null>(null);
   const [isBusy, setIsBusy] = useState(false);
-  const { promptRuns, savePromptRun } = usePromptRuns();
+  const { promptRuns, setPromptRuns, savePromptRun } = usePromptRuns();
   const { benchmarkRuns, saveBenchmarkRun } = useBenchmarkRuns();
   const { evaluatorResults, saveEvaluatorResult } = useEvaluatorResults();
   const { onlineExperiments, saveOnlineExperiment } = useOnlineExperiments();
@@ -483,7 +483,11 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
           )}
         </Panel>
 
-        <Panel title="6. 最近运行记录" icon={<Activity size={18} className="text-zinc-400" />}>
+        <Panel
+          title="6. 最近运行记录"
+          icon={<Activity size={18} className="text-zinc-400" />}
+          actions={promptRuns.length > 0 ? <Button size="sm" onClick={() => setPromptRuns([])}>清空旧记录</Button> : undefined}
+        >
           {promptRuns.length === 0 ? (
             <EmptyState title="还没有运行记录" description="点击真实运行/预览后，结果会保存到后端 runs 集合。" />
           ) : (
@@ -493,6 +497,7 @@ export const RunLabWorkbench: React.FC<RunLabWorkbenchProps> = ({ assets, capabi
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-zinc-100">{run.input || '无输入'}</div>
                     <div className="mt-1 text-xs text-zinc-500">{run.provider || 'local'} · {run.model || 'preview'} · {new Date(run.createdAt).toLocaleString()}</div>
+                    {run.status === 'failed' && <div className="mt-1 line-clamp-2 text-xs text-red-300/80">{run.error || '运行失败'}</div>}
                   </div>
                   <StatusPill status={run.status || 'preview_only'} />
                 </div>
