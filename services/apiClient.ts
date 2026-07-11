@@ -27,7 +27,9 @@ import {
   OnlineExperiment
 } from '../types';
 
-const API_BASE_URL = ((import.meta as any).env?.VITE_API_BASE_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
+const API_BASE_URL = (
+  import.meta.env.PROD ? '' : import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8787'
+).replace(/\/$/, '');
 
 export const getBackendHealth = () => request<BackendHealth>('/api/health');
 export const getDocsIndex = () => request<DocsIndexItem[]>('/api/docs/index');

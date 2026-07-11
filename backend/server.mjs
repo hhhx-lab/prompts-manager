@@ -9,7 +9,9 @@ import { promisify } from 'node:util';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const docsDir = path.join(rootDir, 'docs');
-const dataDir = path.join(rootDir, 'data');
+const dataDir = process.env.VERCEL
+  ? path.join('/tmp', 'promptmaster-data')
+  : path.join(rootDir, 'data');
 const execFileAsync = promisify(execFile);
 loadEnvFiles();
 const port = Number(process.env.API_PORT || process.env.PORT || 8787);
@@ -57,7 +59,7 @@ const ASSET_SLOT_TYPES = {
 
 await fs.mkdir(dataDir, { recursive: true });
 
-const server = http.createServer(async (req, res) => {
+export async function handler(req, res) {
   setCorsHeaders(res);
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -291,11 +293,14 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500);
   }
-});
+}
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`PromptMaster API listening on http://127.0.0.1:${port}`);
-});
+if (!process.env.VERCEL) {
+  const server = http.createServer(handler);
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`PromptMaster API listening on http://127.0.0.1:${port}`);
+  });
+}
 
 function loadEnvFiles() {
   for (const filename of ['.env.local', '.env']) {
