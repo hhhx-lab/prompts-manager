@@ -16,7 +16,7 @@
 
 > Paste the prompt you were about to send to an AI. Prompt Master Pro helps you turn it into a clear, constrained, asset-aware prompt that can be edited, versioned, tested, and saved as reusable engineering knowledge.
 
-Most prompt tools stop at rewriting text. Prompt Master Pro is built around the full operating loop: raw prompt, asset selection, reference files, optimization, manual edits, confirmed iteration, Run Lab checks, feedback events, and reusable asset packages.
+Prompt Master Pro supports the full operating loop: raw prompt, asset selection, reference files, optimization, manual edits, confirmed iteration, Run Lab checks, feedback events, and reusable asset packages.
 
 It is designed for people who want better prompts, but also for people building a prompt engineering library: Prompt, Skill, MCP, SDK, Agent, Workflow, Tool, Reference, Evaluator, Policy, and capability packs all live in one local workspace.
 
@@ -164,6 +164,11 @@ Final prompt with highlights explaining which assets and directions were used
 
 ## Quick Start
 
+```bash
+git clone --branch main git@github.com:hhhx-lab/prompts-manager.git
+cd prompts-manager
+```
+
 Install dependencies:
 
 ```bash
@@ -217,7 +222,7 @@ npm run dev:web
 | `LLM_API_KEY` | Model API key |
 | `LLM_MODEL` | Default model name |
 | `LLM_CANDIDATE_MODELS` | Candidate models for multi-model Run Lab experiments |
-| `MODEL_TIMEOUT_MS` | Model request timeout, default 180000ms |
+| `MODEL_TIMEOUT_MS` | Model request timeout; code fallback is 60000ms, configurable in `.env.local` |
 | `MODEL_TEMPERATURE` | Default model temperature |
 | `MODEL_TLS_REJECT_UNAUTHORIZED` | Whether backend model calls verify HTTPS certificates |
 | `ENABLE_TOOL_EXECUTION` | Enables the real tool execution gate when set to true |
@@ -290,6 +295,12 @@ Key backend routes:
 | `POST /api/market/remote/publish` | Remote marketplace publish contract |
 | `POST /api/teams/approval` | Team approval request contract |
 | `POST /api/experiments/online/create` | Online experiment contract |
+
+## Vercel Deployment
+
+`vercel.json` builds the Vite frontend into `dist/` and rewrites `/api/*` to `api/handler.mjs`. The handler uses the same backend API and includes the `docs/` knowledge directory.
+
+Set server-side model credentials in the deployment environment. Under Vercel, JSON state is written to temporary function storage and may disappear or differ between instances. Use the local API for persistent local JSON state, or add durable storage before relying on shared cloud state. Long model calls and local tool adapters remain subject to the hosting runtime's time and execution limits.
 
 ## Development Commands
 
@@ -385,3 +396,16 @@ This repository already focuses on the local single-user PromptOps loop. The nex
 ## Star This If
 
 Star this repo if you want a prompt tool that behaves less like a text box and more like a PromptOps operating system: assets, versions, runs, policies, evaluators, feedback, and controlled execution in one local-first workspace.
+
+## Restore a Local Checkout
+
+Clone the current `main` branch through SSH:
+
+```bash
+git clone --branch main git@github.com:hhhx-lab/prompts-manager.git
+cd prompts-manager
+```
+
+Restore your saved environment files to their original relative paths before starting the application. Use the quick-start commands to recreate project dependencies. Git contains source code and configuration templates; local credentials, caches, uploads, and generated runtime state are kept separately.
+
+Restore `.env.local` at the repository root. Local JSON state is runtime data and is recreated separately from the source checkout.
